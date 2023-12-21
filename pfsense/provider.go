@@ -31,35 +31,22 @@ package pfsense
 
 import (
 	"errors"
-	"fmt"
-	"net/url"
 	"strings"
 	"time"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/validation"
 	"github.com/sjafferali/pfsense-api-goclient/pfsenseapi"
 )
 
-func isValidHTTPURL(val interface{}, key string) (warns []string, errs []error) {
-	value := val.(string)
-	url, err := url.Parse(value)
-	if err != nil || (url.Scheme != "http" && url.Scheme != "https") {
-		errs = append(errs, fmt.Errorf("%q must be a valid HTTP/HTTPS URL, got: %q", key, value))
-	}
-	if url.Path != "" || url.RawQuery != "" || url.Fragment != "" {
-		errs = append(errs, fmt.Errorf("%q should not contain any path, query or fragment, got: %q", key, value))
-	}
-	return
-}
-
 // Provider returns a Terraform provider for managing pfSense resources.
 func Provider() *schema.Provider {
-	return &schema.Provider{
+	provider := &schema.Provider{
 		Schema: map[string]*schema.Schema{
 			"url": {
 				Type:         schema.TypeString,
 				Required:     true,
-				ValidateFunc: isValidHTTPURL,
+				ValidateFunc: validation.IsURLWithHTTPorHTTPS,
 				Description:  "The url of the target pfsense e.g https://192.168.1.1",
 			},
 			"user": {
@@ -90,7 +77,7 @@ func Provider() *schema.Provider {
 				Description: "API Client Token for token-based authentication.",
 				Sensitive:   true,
 			},
-			"skip_tls": {
+			"allow_insecure": {
 				Type:        schema.TypeBool,
 				Optional:    true,
 				Description: "Skip TLS verification. If not specified, it defaults to true unless the url uses HTTPS.",
@@ -102,30 +89,29 @@ func Provider() *schema.Provider {
 				Default:     5,
 			},
 		},
-		ResourcesMap: map[string]*schema.Resource{
-			"pfsense_firewall_alias": resourceFirewallAlias(),
-		},
+		ResourcesMap:  map[string]*schema.Resource{},
 		ConfigureFunc: providerConfigure,
 	}
+
+	resourceFirewallAlias().AddResource(provider)
+	resourceDHCPServer().AddResource(provider)
+	resourceFirewallRule().AddResource(provider)
+	resourceDHCPStaticMapping().AddResource(provider)
+	resourceInterface().AddResource(provider)
+	resourceInterfaceVLAN().AddResource(provider)
+
+	return provider
 }
 
 func providerConfigure(d *schema.ResourceData) (interface{}, error) {
 	url := d.Get("url").(string)
-	skipTLSValue, skipTLSExists := d.GetOk("skip_tls")
 
-	if strings.HasPrefix(url, "https://") {
-		if !skipTLSExists {
-			skipTLSValue = false
-		}
-	} else if !skipTLSExists {
-		skipTLSExists = true
-	} else if !skipTLSValue.(bool) {
-		return nil, fmt.Errorf("Cannot enforce TLS for url %s", url)
-	}
+	d.Get("allow_insecure")
+	allowInsecure := d.Get("allow_insecure").(bool) || strings.HasPrefix(url, "https://")
 
 	c := pfsenseapi.Config{
 		Host:    url,
-		SkipTLS: skipTLSValue.(bool),
+		SkipTLS: allowInsecure,
 		Timeout: time.Duration(d.Get("timeout").(int)) * time.Second,
 	}
 

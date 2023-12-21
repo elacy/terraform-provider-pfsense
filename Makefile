@@ -14,17 +14,19 @@ build:
 	@echo "Building the provider..."
 	go build -o $(BINARY_NAME)
 
+test: build
+	@echo "Testing provider..."
+	go test -v ./...
+
 # Install the custom provider to the local Terraform plugins directory
-local-install: build
+local-install: test
 	@echo "Installing the provider to local Terraform plugins directory..."
 	rm -rf $(TF_PROVIDER_DIR)
 	rm -rf $(TF_PLUGIN_DIR)
 	mkdir -p $(TF_PROVIDER_BINARY_DIR)
 	mkdir -p $(TF_PLUGIN_BINARY_DIR)
-	cp $(BINARY_NAME) $(TF_PLUGIN_BINARY_DIR)/$(BINARY_NAME)
+	mv $(BINARY_NAME) $(TF_PLUGIN_BINARY_DIR)/$(BINARY_NAME)
 	chmod +x $(TF_PLUGIN_BINARY_DIR)/$(BINARY_NAME)
-	cp $(BINARY_NAME) $(TF_PROVIDER_BINARY_DIR)/$(BINARY_NAME)
-	chmod +x $(TF_PROVIDER_BINARY_DIR)/$(BINARY_NAME)
 	@echo "Provider installed at $(TF_PLUGIN_BINARY_DIR) and $(TF_PROVIDER_BINARY_DIR)!"
 
 

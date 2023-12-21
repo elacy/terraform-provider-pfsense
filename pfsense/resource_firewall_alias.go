@@ -4,7 +4,6 @@ import (
 	"context"
 	"strings"
 
-	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/validation"
 	"github.com/sjafferali/pfsense-api-goclient/pfsenseapi"
@@ -13,161 +12,128 @@ import (
 const addressSplitter = " "
 const detailSplitter = "||"
 
-func resourceFirewallAlias() *schema.Resource {
-	return &schema.Resource{
-		CreateContext: resourceFirewallAliasCreate,
-		ReadContext:   resourceFirewallAliasRead,
-		UpdateContext: resourceFirewallAliasUpdate,
-		DeleteContext: resourceFirewallAliasDelete,
-		Schema: map[string]*schema.Schema{
+func resourceFirewallAlias() *resource[pfsenseapi.FirewallAliasRequest, pfsenseapi.FirewallAlias, string] {
+	return &resource[pfsenseapi.FirewallAliasRequest, pfsenseapi.FirewallAlias, string]{
+		name:        "pfsense_firewall_alias",
+		description: "Firewall Alias",
+		delete: func(ctx context.Context, client *pfsenseapi.Client, _ string, name string) error {
+			return client.Firewall.DeleteAlias(ctx, name, true)
+		},
+		list: func(ctx context.Context, client *pfsenseapi.Client, _ string) ([]*pfsenseapi.FirewallAlias, error) {
+			return client.Firewall.ListAliases(ctx)
+		},
+		update: func(ctx context.Context, client *pfsenseapi.Client, name string, request *pfsenseapi.FirewallAliasRequest) (*pfsenseapi.FirewallAlias, error) {
+			return client.Firewall.UpdateAlias(ctx, name, *request, true)
+		},
+		create: func(ctx context.Context, client *pfsenseapi.Client, request *pfsenseapi.FirewallAliasRequest) (*pfsenseapi.FirewallAlias, error) {
+			return client.Firewall.CreateAlias(ctx, *request, true)
+		},
+		properties: map[string]*resourceProperty[pfsenseapi.FirewallAliasRequest, pfsenseapi.FirewallAlias]{
 			"name": {
-				Type:     schema.TypeString,
-				Required: true,
-				ForceNew: true, // if the name cannot be changed after creation
-			},
-			"descr": {
-				Type:     schema.TypeString,
-				Optional: true,
-			},
-			"type": {
-				Type:         schema.TypeString,
-				Required:     true,
-				ValidateFunc: validation.StringInSlice([]string{"host", "network", "port", "url", "url_ports", "urltable", "urltable_ports"}, false),
-			},
-			"addresses": {
-				Type:     schema.TypeList,
-				Required: true,
-				Elem: &schema.Resource{
-					Schema: map[string]*schema.Schema{
-						"address": {
-							Type:     schema.TypeString,
-							Required: true,
-						},
-						"detail": {
-							Type:     schema.TypeString,
-							Optional: true,
-						},
-					},
+				idProperty: true,
+				schema: &schema.Schema{
+					Type:         schema.TypeString,
+					Required:     true,
+					ValidateFunc: validation.StringMatch(regexValidator(`^\w+$`), "Only alpha-numeric and underscore characters are allowed"),
+					Description:  "Name of the new alias. Only alpha-numeric and underscore characters are allowed",
+				},
+				updateRequest: func(d *schema.ResourceData, name string, req *pfsenseapi.FirewallAliasRequest) error {
+					req.Name = d.Get(name).(string)
+					return nil
+				},
+				getFromResponse: func(req *pfsenseapi.FirewallAlias) (interface{}, error) {
+					return req.Name, nil
 				},
 			},
-			"apply_immediately": {
-				Type:     schema.TypeBool,
-				Optional: true,
-				Default:  false,
+			"description": {
+				schema: &schema.Schema{
+					Type:        schema.TypeString,
+					Optional:    true,
+					Description: "Description of alias.",
+				},
+				updateRequest: func(d *schema.ResourceData, name string, req *pfsenseapi.FirewallAliasRequest) error {
+					req.Descr = d.Get(name).(string)
+					return nil
+				},
+				getFromResponse: func(req *pfsenseapi.FirewallAlias) (interface{}, error) {
+					return req.Descr, nil
+				},
+			},
+			"type": {
+				schema: &schema.Schema{
+					Type:         schema.TypeString,
+					Required:     true,
+					ValidateFunc: validation.StringInSlice([]string{"host", "network", "port"}, false),
+					Description:  "Type of alias.",
+				},
+				updateRequest: func(d *schema.ResourceData, name string, req *pfsenseapi.FirewallAliasRequest) error {
+					req.Type = d.Get(name).(string)
+					return nil
+				},
+				getFromResponse: func(req *pfsenseapi.FirewallAlias) (interface{}, error) {
+					return req.Type, nil
+				},
+			},
+			"target": {
+				schema: &schema.Schema{
+					Type:     schema.TypeList,
+					Required: true,
+					Elem: &schema.Resource{
+						Schema: map[string]*schema.Schema{
+							"address": {
+								Type:         schema.TypeString,
+								Required:     true,
+								Description:  "Host, network or port values to add to the alias.",
+								ValidateFunc: validation.StringDoesNotContainAny(" "),
+							},
+							"description": {
+								Type:         schema.TypeString,
+								Optional:     true,
+								Description:  "Description of the address",
+								ValidateFunc: validation.StringDoesNotContainAny("|"),
+							},
+						},
+					},
+					Description: "Hosts, networks or port values to add to the alias.",
+				},
+				updateRequest: func(d *schema.ResourceData, name string, req *pfsenseapi.FirewallAliasRequest) error {
+					targets := d.Get("target").([]interface{})
+
+					addressStrings := make([]string, len(targets))
+					detailStrings := make([]string, len(targets))
+
+					for i, target := range targets {
+						targetMap := target.(map[string]interface{})
+						addressStrings[i] = targetMap["address"].(string)
+						if detail, ok := targetMap["description"].(string); ok {
+							detailStrings[i] = detail
+						} else {
+							detailStrings[i] = ""
+						}
+					}
+
+					req.Address = addressStrings
+					req.Detail = detailStrings
+
+					return nil
+				},
+				getFromResponse: func(response *pfsenseapi.FirewallAlias) (interface{}, error) {
+					var addresses []map[string]interface{}
+					details := strings.Split(response.Detail, detailSplitter)
+
+					for i, addr := range strings.Split(response.Address, addressSplitter) {
+						addressData := map[string]interface{}{
+							"address": addr,
+						}
+						if len(details) > i {
+							addressData["description"] = details[i]
+						}
+						addresses = append(addresses, addressData)
+					}
+
+					return addresses, nil
+				},
 			},
 		},
 	}
-}
-
-// getAliasFromResource is used to convert the Terraform Resource data provided by the user into a Request that the API will accept.
-func getAliasFromResource(d *schema.ResourceData) pfsenseapi.FirewallAliasRequest {
-	addresses := d.Get("addresses").([]interface{})
-	addressStrings := make([]string, len(addresses))
-	detailStrings := make([]string, len(addresses))
-
-	for i, address := range addresses {
-		addrMap := address.(map[string]interface{})
-		addressStrings[i] = addrMap["address"].(string)
-		if detail, ok := addrMap["detail"].(string); ok {
-			detailStrings[i] = detail
-		} else {
-			detailStrings[i] = ""
-		}
-	}
-
-	return pfsenseapi.FirewallAliasRequest{
-		Address: addressStrings,
-		Descr:   d.Get("descr").(string),
-		Detail:  detailStrings,
-		Name:    d.Get("name").(string),
-		Type:    d.Get("type").(string),
-	}
-}
-
-func resourceFirewallAliasCreate(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
-	client := m.(*pfsenseapi.Client)
-	request := getAliasFromResource(d)
-
-	if err := client.Firewall.CreateAlias(ctx, request, d.Get("apply_immediately").(bool)); err != nil {
-		return diag.FromErr(err)
-	}
-
-	d.SetId(request.Name) // Aliases are unique by name
-
-	return resourceFirewallAliasRead(ctx, d, m)
-}
-
-func resourceFirewallAliasDelete(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
-	client := m.(*pfsenseapi.Client)
-	if err := client.Firewall.DeleteAlias(ctx, d.Id(), d.Get("apply_immediately").(bool)); err != nil {
-		return diag.FromErr(err)
-	}
-	d.SetId("") // Remove the resource from state
-	return nil
-}
-
-func resourceFirewallAliasRead(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
-	var diags diag.Diagnostics
-
-	client := m.(*pfsenseapi.Client)
-
-	aliases, err := client.Firewall.ListAliases(ctx)
-
-	if err != nil {
-		return diag.FromErr(err)
-	}
-
-	var alias *pfsenseapi.FirewallAlias
-
-	for _, a := range aliases {
-		if a.Name == d.Id() {
-			alias = a
-			break
-		}
-	}
-
-	if alias == nil {
-		return diag.Errorf("Alias named '%s' not found", d.Id())
-	}
-
-	// Set the simple fields directly
-	if err := d.Set("name", alias.Name); err != nil {
-		diags = append(diags, diag.FromErr(err)...)
-	}
-	if err := d.Set("descr", alias.Descr); err != nil {
-		diags = append(diags, diag.FromErr(err)...)
-	}
-	if err := d.Set("type", alias.Type); err != nil {
-		diags = append(diags, diag.FromErr(err)...)
-	}
-
-	var addresses []map[string]interface{}
-	details := strings.Split(alias.Detail, detailSplitter)
-
-	for i, addr := range strings.Split(alias.Address, addressSplitter) {
-		addressData := map[string]interface{}{
-			"address": addr,
-		}
-		if len(details) > i {
-			addressData["detail"] = details[i]
-		}
-		addresses = append(addresses, addressData)
-	}
-
-	if err := d.Set("addresses", addresses); err != nil {
-		diags = append(diags, diag.FromErr(err)...)
-	}
-
-	return diags
-}
-
-func resourceFirewallAliasUpdate(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
-	client := m.(*pfsenseapi.Client)
-	request := getAliasFromResource(d)
-
-	if err := client.Firewall.UpdateAlias(ctx, d.Id(), request, d.Get("apply_immediately").(bool)); err != nil {
-		return diag.FromErr(err)
-	}
-
-	return resourceFirewallAliasRead(ctx, d, m)
 }
