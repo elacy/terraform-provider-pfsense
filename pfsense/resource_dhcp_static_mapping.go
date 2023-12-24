@@ -2,7 +2,6 @@ package pfsense
 
 import (
 	"context"
-	"strings"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/validation"
@@ -33,6 +32,10 @@ func resourceDHCPStaticMapping() *resource[pfsenseapi.DHCPStaticMappingRequest, 
 					Description: "Interface to assign this static mapping to. You may specify either the interface's descriptive name, the pfSense interface ID (e.g. wan, lan, optx), or the real interface ID (e.g. igb0).",
 					Required:    true,
 					ForceNew:    true,
+				},
+				updateRequest: func(d *schema.ResourceData, name string, req *pfsenseapi.DHCPStaticMappingRequest) error {
+					req.Interface = d.Get(name).(string)
+					return nil
 				},
 			},
 			"mac": {
@@ -160,7 +163,7 @@ func resourceDHCPStaticMapping() *resource[pfsenseapi.DHCPStaticMappingRequest, 
 					return nil
 				},
 				getFromResponse: func(req *pfsenseapi.DHCPStaticMapping) (interface{}, error) {
-					return strings.Split(req.DomainSearchList, ";"), nil
+					return splitIntoArray(req.DomainSearchList, ";"), nil
 				},
 			},
 			"dns_servers": {

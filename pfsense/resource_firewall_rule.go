@@ -3,7 +3,6 @@ package pfsense
 import (
 	"context"
 	"slices"
-	"strings"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/validation"
@@ -26,7 +25,7 @@ func resourceFirewallRule() *resource[pfsenseapi.FirewallRuleRequest, pfsenseapi
 		create: func(ctx context.Context, client *pfsenseapi.Client, request *pfsenseapi.FirewallRuleRequest) (*pfsenseapi.FirewallRule, error) {
 			return client.Firewall.CreateRule(ctx, *request, true)
 		},
-		getId: func(response *pfsenseapi.FirewallRule) (int, error) {
+		getId: func(_ context.Context, _ *pfsenseapi.Client, response *pfsenseapi.FirewallRule) (int, error) {
 			return int(response.Tracker), nil
 		},
 		properties: map[string]*resourceProperty[pfsenseapi.FirewallRuleRequest, pfsenseapi.FirewallRule]{
@@ -140,6 +139,7 @@ func resourceFirewallRule() *resource[pfsenseapi.FirewallRuleRequest, pfsenseapi
 				schema: &schema.Schema{
 					Type:        schema.TypeString,
 					Optional:    true,
+					Default:     "any",
 					Description: "TCP and/or UDP destination port, port range or port alias to apply to this rule. You may specify `any` to match any destination port. This parameter is required when `protocol` is set to `tcp`, `udp`, or `tcp/udp`.",
 				},
 				updateRequest: func(d *schema.ResourceData, name string, req *pfsenseapi.FirewallRuleRequest) error {
@@ -204,7 +204,7 @@ func resourceFirewallRule() *resource[pfsenseapi.FirewallRuleRequest, pfsenseapi
 					return nil
 				},
 				getFromResponse: func(res *pfsenseapi.FirewallRule) (interface{}, error) {
-					return strings.Split(res.ICMPType, ","), nil
+					return splitIntoArray(res.ICMPType, ","), nil
 				},
 			},
 			"interface": {
@@ -227,7 +227,7 @@ func resourceFirewallRule() *resource[pfsenseapi.FirewallRuleRequest, pfsenseapi
 					return nil
 				},
 				getFromResponse: func(res *pfsenseapi.FirewallRule) (interface{}, error) {
-					return strings.Split(res.Interface, ","), nil
+					return splitIntoArray(res.Interface, ","), nil
 				},
 			},
 			"ip_protocol": {
@@ -343,6 +343,7 @@ func resourceFirewallRule() *resource[pfsenseapi.FirewallRuleRequest, pfsenseapi
 				schema: &schema.Schema{
 					Type:        schema.TypeString,
 					Optional:    true,
+					Default:     "any",
 					Description: "TCP and/or UDP source port, port range or port alias  to apply to this rule. You may specify `any` to match any source port. This parameter is required when `protocol` is set to `tcp`, `udp`, or `tcp/udp`.",
 				},
 				updateRequest: func(d *schema.ResourceData, name string, req *pfsenseapi.FirewallRuleRequest) error {
@@ -419,9 +420,9 @@ func resourceFirewallRule() *resource[pfsenseapi.FirewallRuleRequest, pfsenseapi
 				},
 				getFromResponse: func(res *pfsenseapi.FirewallRule) (interface{}, error) {
 					flags := []interface{}{}
-					setFlags := strings.Split(res.TCPFlags1, ",")
+					setFlags := splitIntoArray(res.TCPFlags1, ",")
 
-					for _, flag := range strings.Split(res.TCPFlags2, ",") {
+					for _, flag := range splitIntoArray(res.TCPFlags2, ",") {
 						flags = append(flags, map[string]interface{}{
 							"flag":    flag,
 							"present": slices.Contains(setFlags, flag),

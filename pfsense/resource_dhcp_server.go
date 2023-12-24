@@ -2,7 +2,6 @@ package pfsense
 
 import (
 	"context"
-	"strings"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/validation"
@@ -116,13 +115,14 @@ func resourceDHCPServer() *resource[pfsenseapi.DHCPServerConfigurationRequest, p
 					return nil
 				},
 				getFromResponse: func(res *pfsenseapi.DHCPServerConfiguration) (interface{}, error) {
-					return strings.Split(res.DomainSearchList, ";"), nil
+					return splitIntoArray(res.DomainSearchList, ";"), nil
 				},
 			},
 			"enable": {
 				schema: &schema.Schema{
 					Type:        schema.TypeBool,
 					Optional:    true,
+					Default:     true,
 					Description: "Enable the DHCP server for this interface.",
 				},
 				updateRequest: func(d *schema.ResourceData, name string, req *pfsenseapi.DHCPServerConfigurationRequest) error {

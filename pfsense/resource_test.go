@@ -46,6 +46,8 @@ func (r *tfResourceTest[RequestType, ResponseType, IdType]) RunTests(t *testing.
 		"partitionIsForceNew":    r.partitionIsForceNew,
 		"getIdIsSet":             r.getIdIsSet,
 		"functionsAreSet":        r.functionsAreSet,
+		"idTypeMatchesId":        r.idTypeMatchesId,
+		"partitionTypeIsString":  r.partitionTypeIsString,
 	}
 
 	for name, testFunc := range testFuncs {
@@ -95,6 +97,33 @@ func (r *tfResourceTest[RequestType, ResponseType, IdType]) idIsRequired(t *test
 	for name, property := range r.resource.properties {
 		if property.idProperty && !property.schema.Required {
 			t.Errorf("Property %s on resource %s is an ID but it's not required", name, r.resource.name)
+		}
+	}
+}
+
+func (r *tfResourceTest[RequestType, ResponseType, IdType]) idTypeMatchesId(t *testing.T) {
+	var example interface{} = new(IdType)
+
+	for name, property := range r.resource.properties {
+		if property.idProperty {
+			switch example.(type) {
+			case *string:
+				if property.schema.Type != schema.TypeString {
+					t.Errorf("IDType is string but property %s on resource %s is an ID but it's type is %v", name, r.resource.name, property.schema.Type)
+				}
+			case *int:
+				if property.schema.Type != schema.TypeString {
+					t.Errorf("IDType is int but property %s on resource %s is an ID but it's type is %v", name, r.resource.name, property.schema.Type)
+				}
+			}
+		}
+	}
+}
+
+func (r *tfResourceTest[RequestType, ResponseType, IdType]) partitionTypeIsString(t *testing.T) {
+	for name, property := range r.resource.properties {
+		if property.partition && property.schema.Type != schema.TypeString {
+			t.Errorf("Property %s on resource %s is a partition but its type is %v when it should be string", name, r.resource.name, property.schema.Type)
 		}
 	}
 }
@@ -167,7 +196,7 @@ func (r *tfResourceTest[RequestType, ResponseType, IdType]) initPartition(partit
 	}
 }
 
-func (r *tfResourceTest[RequestType, ResponseType, IdType]) update(_ context.Context, _ *pfsenseapi.Client, id IdType, request *RequestType) (*ResponseType, error) {
+func (r *tfResourceTest[RequestType, ResponseType, IdType]) update(ctx context.Context, client *pfsenseapi.Client, id IdType, request *RequestType) (*ResponseType, error) {
 	result, err := r.convert(request)
 
 	if err != nil {
@@ -186,7 +215,7 @@ func (r *tfResourceTest[RequestType, ResponseType, IdType]) update(_ context.Con
 	r.initPartition(partition)
 
 	for i, item := range r.currentState[partition] {
-		itemId, err := r.resource.getId(item)
+		itemId, err := r.resource.getId(ctx, client, item)
 
 		if err != nil {
 			return nil, err
@@ -201,11 +230,11 @@ func (r *tfResourceTest[RequestType, ResponseType, IdType]) update(_ context.Con
 	return nil, fmt.Errorf("Test error, unable to find Id %v within partition %s on resource %s", id, partition, r.resource.name)
 }
 
-func (r *tfResourceTest[RequestType, ResponseType, IdType]) delete(_ context.Context, _ *pfsenseapi.Client, partition string, id IdType) error {
+func (r *tfResourceTest[RequestType, ResponseType, IdType]) delete(ctx context.Context, client *pfsenseapi.Client, partition string, id IdType) error {
 	r.initPartition(partition)
 
 	for i, item := range r.currentState[partition] {
-		itemId, err := r.resource.getId(item)
+		itemId, err := r.resource.getId(ctx, client, item)
 
 		if err != nil {
 			return err

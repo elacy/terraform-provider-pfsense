@@ -2,7 +2,7 @@ package pfsense
 
 import (
 	"context"
-	"strings"
+	"fmt"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/validation"
@@ -10,7 +10,7 @@ import (
 )
 
 func resourceInterface() *resource[pfsenseapi.InterfaceRequest, pfsenseapi.Interface, string] {
-	return &resource[pfsenseapi.InterfaceRequest, pfsenseapi.Interface, string]{
+	r := &resource[pfsenseapi.InterfaceRequest, pfsenseapi.Interface, string]{
 		name:        "pfsense_interface",
 		description: "Interface",
 		delete: func(ctx context.Context, client *pfsenseapi.Client, _ string, id string) error {
@@ -20,9 +20,11 @@ func resourceInterface() *resource[pfsenseapi.InterfaceRequest, pfsenseapi.Inter
 			return client.Interface.ListInterfaces(ctx)
 		},
 		update: func(ctx context.Context, client *pfsenseapi.Client, id string, request *pfsenseapi.InterfaceRequest) (*pfsenseapi.Interface, error) {
+			request.Apply = true
 			return client.Interface.UpdateInterface(ctx, id, *request)
 		},
 		create: func(ctx context.Context, client *pfsenseapi.Client, request *pfsenseapi.InterfaceRequest) (*pfsenseapi.Interface, error) {
+			request.Apply = true
 			return client.Interface.CreateInterface(ctx, *request)
 		},
 		properties: map[string]*resourceProperty[pfsenseapi.InterfaceRequest, pfsenseapi.Interface]{
@@ -338,7 +340,7 @@ func resourceInterface() *resource[pfsenseapi.InterfaceRequest, pfsenseapi.Inter
 					return nil
 				},
 				getFromResponse: func(res *pfsenseapi.Interface) (interface{}, error) {
-					return strings.Split(res.Dhcprejectfrom, ","), nil
+					return splitIntoArray(res.Dhcprejectfrom, ","), nil
 				},
 			},
 			"dhcp_vlan_enable": {
@@ -359,6 +361,7 @@ func resourceInterface() *resource[pfsenseapi.InterfaceRequest, pfsenseapi.Inter
 				schema: &schema.Schema{
 					Type:        schema.TypeBool,
 					Optional:    true,
+					Default:     true,
 					Description: "Enable interface upon creation.",
 				},
 				updateRequest: func(d *schema.ResourceData, name string, req *pfsenseapi.InterfaceRequest) error {
@@ -413,7 +416,6 @@ func resourceInterface() *resource[pfsenseapi.InterfaceRequest, pfsenseapi.Inter
 				},
 			},
 			"if": {
-				idProperty: true,
 				schema: &schema.Schema{
 					Type:        schema.TypeString,
 					Required:    true,
@@ -562,13 +564,14 @@ func resourceInterface() *resource[pfsenseapi.InterfaceRequest, pfsenseapi.Inter
 			},
 			"subnet": {
 				schema: &schema.Schema{
-					Type:         schema.TypeString,
+					Type:         schema.TypeInt,
 					Optional:     true,
 					Description:  "Interface's static IPv4 address's subnet bitmask. Required if `type` is set to `staticv4`.",
 					ValidateFunc: validation.IntBetween(1, 32),
 				},
 				updateRequest: func(d *schema.ResourceData, name string, req *pfsenseapi.InterfaceRequest) error {
-					req.Subnet = d.Get(name).(*int)
+					i := d.Get(name).(int)
+					req.Subnet = &i
 					return nil
 				},
 				getFromResponse: func(req *pfsenseapi.Interface) (interface{}, error) {
@@ -629,7 +632,13 @@ func resourceInterface() *resource[pfsenseapi.InterfaceRequest, pfsenseapi.Inter
 					return nil
 				},
 				getFromResponse: func(req *pfsenseapi.Interface) (interface{}, error) {
-					return req.Type, nil
+					if req.Ipaddr == "dhcp" {
+						return req.Ipaddr, nil
+					} else if req.Ipaddr != "" {
+						return "staticv4", nil
+					}
+
+					return "", nil
 				},
 			},
 			"type_v6": {
@@ -649,4 +658,22 @@ func resourceInterface() *resource[pfsenseapi.InterfaceRequest, pfsenseapi.Inter
 			},
 		},
 	}
+
+	r.getId = func(ctx context.Context, client *pfsenseapi.Client, i *pfsenseapi.Interface) (string, error) {
+		ifaces, err := r.list(ctx, client, "")
+
+		if err != nil {
+			return "", err
+		}
+
+		for _, iface := range ifaces {
+			if iface.If == i.If {
+				return iface.Name, nil
+			}
+		}
+
+		return "", fmt.Errorf("Unable to find interface with If %s after creation", i.If)
+	}
+
+	return r
 }

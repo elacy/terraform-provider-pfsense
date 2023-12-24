@@ -2,7 +2,6 @@ package pfsense
 
 import (
 	"context"
-	"strings"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/validation"
@@ -119,9 +118,9 @@ func resourceFirewallAlias() *resource[pfsenseapi.FirewallAliasRequest, pfsensea
 				},
 				getFromResponse: func(response *pfsenseapi.FirewallAlias) (interface{}, error) {
 					var addresses []map[string]interface{}
-					details := strings.Split(response.Detail, detailSplitter)
+					details := splitIntoArray(response.Detail, detailSplitter)
 
-					for i, addr := range strings.Split(response.Address, addressSplitter) {
+					for i, addr := range splitIntoArray(response.Address, addressSplitter) {
 						addressData := map[string]interface{}{
 							"address": addr,
 						}

@@ -3,8 +3,8 @@ package pfsense
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strconv"
-	"strings"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
@@ -37,7 +37,7 @@ type resourceProperty[RequestType any, ResponseType any] struct {
 type resource[RequestType any, ResponseType any, IdType ~string | ~int] struct {
 	name        string
 	description string
-	getId       func(*ResponseType) (IdType, error)
+	getId       func(context.Context, *pfsenseapi.Client, *ResponseType) (IdType, error)
 	partitionId string
 	update      updateFunc[RequestType, ResponseType, IdType]
 	create      createFunc[RequestType, ResponseType]
@@ -52,24 +52,21 @@ func (r *resource[RequestType, ResponseType, IdType]) updateRequest(d *schema.Re
 		value, exists := d.GetOk(name)
 
 		if exists {
-			switch t := value.(type) {
-			case string:
-				if t == "" {
-					exists = false
-				}
-			case []interface{}:
-				if len(t) == 0 {
-					exists = false
-				}
+			value = parseValue(value)
+
+			if value == nil {
+				exists = false
 			}
+		} else if prop.schema.Default != nil {
+			d.Set(name, prop.schema.Default)
+			value = prop.schema.Default
+			exists = true
 		}
 
 		if exists {
 			if err := prop.updateRequest(d, name, request); err != nil {
 				return err
 			}
-		} else if prop.schema.Default != nil {
-			d.Set(name, prop.schema.Default)
 		}
 	}
 
@@ -78,13 +75,19 @@ func (r *resource[RequestType, ResponseType, IdType]) updateRequest(d *schema.Re
 
 func (r *resource[RequestType, ResponseType, IdType]) updateResource(d *schema.ResourceData, response *ResponseType) error {
 	for name, prop := range r.properties {
+		if prop.getFromResponse == nil {
+			continue
+		}
+
 		value, err := prop.getFromResponse(response)
 
 		if err != nil {
 			return err
 		}
 
-		if !isNilInterface(value) && value == "" {
+		value = parseValue(value)
+
+		if value != nil {
 			if err = d.Set(name, value); err != nil {
 				return err
 			}
@@ -115,13 +118,33 @@ func (r *resource[RequestType, ResponseType, IdType]) GetCreateFunction() schema
 			return diag.FromErr(err)
 		}
 
-		id, err := r.getId(response)
+		id, err := r.getId(ctx, client, response)
 
 		if err != nil {
 			return diag.FromErr(err)
 		}
 
-		d.SetId(fmt.Sprint(id))
+		if reflect.ValueOf(id).IsZero() {
+			return diag.Errorf("Invalid ID returned for %s: '%s'", r.name, fmt.Sprint(id))
+		}
+
+		if r.partitionId != "" {
+			i, ok := d.GetOk(r.partitionId)
+
+			if !ok {
+				return diag.Errorf("Field %s is required, provider error, should be already validated", r.partitionId)
+			}
+
+			parition, ok := i.(string)
+
+			if !ok {
+				return diag.Errorf("Field %s should be a string, provider error, should be already validated", r.partitionId)
+			}
+
+			d.SetId(fmt.Sprintf("%s%s%s", parition, idSeparator, fmt.Sprint(id)))
+		} else {
+			d.SetId(fmt.Sprint(id))
+		}
 
 		return nil
 	}
@@ -130,7 +153,6 @@ func (r *resource[RequestType, ResponseType, IdType]) GetCreateFunction() schema
 func (r *resource[RequestType, ResponseType, IdType]) UpdateFromId(ctx context.Context, client *pfsenseapi.Client, d *schema.ResourceData) error {
 	var list []*ResponseType
 	var err error
-	var partition string
 
 	partition, id, err := r.getResourceId(d)
 
@@ -145,7 +167,7 @@ func (r *resource[RequestType, ResponseType, IdType]) UpdateFromId(ctx context.C
 	}
 
 	for _, item := range list {
-		itemId, err := r.getId(item)
+		itemId, err := r.getId(ctx, client, item)
 
 		if err != nil {
 			return fmt.Errorf("Unable to get Id from listed value, received err: %v", err)
@@ -155,6 +177,13 @@ func (r *resource[RequestType, ResponseType, IdType]) UpdateFromId(ctx context.C
 			if err = r.updateResource(d, item); err != nil {
 				return err
 			}
+
+			if r.partitionId != "" {
+				if err := d.Set(r.partitionId, partition); err != nil {
+					return err
+				}
+			}
+
 			return nil
 		}
 	}
@@ -165,7 +194,7 @@ func (r *resource[RequestType, ResponseType, IdType]) UpdateFromId(ctx context.C
 		partitionErrorText = fmt.Sprintf(" and with %s equal to %s", r.partitionId, partition)
 	}
 
-	return fmt.Errorf("Unable to find item with Id %s%s", d.Id(), partitionErrorText)
+	return fmt.Errorf("Unable to find item with Id %s%s", fmt.Sprint(id), partitionErrorText)
 
 }
 
@@ -185,32 +214,31 @@ func (r *resource[RequestType, ResponseType, IdType]) getResourceId(d *schema.Re
 	id := d.Id()
 
 	if r.partitionId != "" {
-		parts := strings.Split(id, idSeparator)
+		parts := splitIntoArray(id, idSeparator)
 		partition = parts[0]
 		id = parts[1]
 	}
 
+	var example interface{} = new(IdType)
 	var zeroValue IdType
 
-	value, ok := any(d.Id()).(IdType)
+	switch example.(type) {
+	case *int:
+		number, err := strconv.Atoi(id)
 
-	if ok {
+		if err != nil {
+			return "", zeroValue, nil
+		}
+
+		value := any(number).(IdType)
+
+		return partition, value, nil
+	case *string:
+		value := any(id).(IdType)
 		return partition, value, nil
 	}
 
-	number, err := strconv.Atoi(d.Id())
-
-	if err != nil {
-		return "", zeroValue, err
-	}
-
-	value, ok = any(number).(IdType)
-
-	if ok {
-		return partition, value, nil
-	}
-
-	return "", zeroValue, fmt.Errorf("Unable to determine type of Id")
+	return "", zeroValue, fmt.Errorf("Unable to determine type of example %v", example)
 }
 
 func (r *resource[RequestType, ResponseType, IdType]) GetUpdateFunction() schema.UpdateContextFunc {
@@ -284,6 +312,16 @@ func (r *resource[RequestType, ResponseType, IdType]) GetDeleteFunction() schema
 	}
 }
 
+func (r *resource[RequestType, ResponseType, IdType]) GetDiffSupressFunction(property *resourceProperty[RequestType, ResponseType]) schema.SchemaDiffSuppressFunc {
+	if property.schema.Default == nil || property.schema.Default == "" {
+		return nil
+	}
+
+	return func(k, oldValue, newValue string, d *schema.ResourceData) bool {
+		return (oldValue == property.schema.Default || newValue == property.schema.Default) && (oldValue == "" || newValue == "")
+	}
+}
+
 func (r *resource[RequestType, ResponseType, IdType]) GetImporter() *schema.ResourceImporter {
 	return &schema.ResourceImporter{
 		StateContext: func(ctx context.Context, d *schema.ResourceData, m interface{}) ([]*schema.ResourceData, error) {
@@ -326,23 +364,33 @@ func (r *resource[RequestType, ResponseType, IdType]) AddResource(provider *sche
 		}
 
 		resource.Schema[name] = property.schema
+		resource.Schema[name].DiffSuppressFunc = r.GetDiffSupressFunction(property)
 	}
 
 	if idName != "" {
-		r.getId = func(response *ResponseType) (IdType, error) {
+		if r.getId != nil {
+			panic(fmt.Sprintf("Shouldn't have get ID function set and an id property, provider error on %s", r.name))
+		}
+
+		r.getId = func(_ context.Context, _ *pfsenseapi.Client, response *ResponseType) (IdType, error) {
 			var zeroValue IdType
-			v, err := r.properties[idName].getFromResponse(response)
+			i, err := r.properties[idName].getFromResponse(response)
 
 			if err != nil {
 				return zeroValue, err
 			}
-			value, ok := v.(IdType)
 
-			if ok {
-				return value, nil
+			if i == zeroValue {
+				return zeroValue, fmt.Errorf("Retrieved '%s' as an property %s", i, idName)
 			}
 
-			return zeroValue, fmt.Errorf("Unable to convert %v (value of %s) to IdType", v, idName)
+			id, ok := i.(IdType)
+
+			if !ok {
+				return zeroValue, fmt.Errorf("Unable to convert %v (value of %s) to IdType", i, idName)
+			}
+
+			return id, nil
 		}
 	}
 

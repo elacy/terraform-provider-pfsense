@@ -86,7 +86,7 @@ func Provider() *schema.Provider {
 				Type:        schema.TypeInt,
 				Optional:    true,
 				Description: "Request timeout duration in seconds.",
-				Default:     5,
+				Default:     60,
 			},
 		},
 		ResourcesMap:  map[string]*schema.Resource{},

@@ -24,7 +24,7 @@ func resourceInterfaceVLAN() *resource[pfsenseapi.VLANRequest, pfsenseapi.VLAN, 
 		create: func(ctx context.Context, client *pfsenseapi.Client, request *pfsenseapi.VLANRequest) (*pfsenseapi.VLAN, error) {
 			return client.Interface.CreateVLAN(ctx, *request)
 		},
-		getId: func(response *pfsenseapi.VLAN) (string, error) {
+		getId: func(_ context.Context, _ *pfsenseapi.Client, response *pfsenseapi.VLAN) (string, error) {
 			return response.Vlanif, nil
 		},
 		properties: map[string]*resourceProperty[pfsenseapi.VLANRequest, pfsenseapi.VLAN]{
