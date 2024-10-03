@@ -12,8 +12,8 @@ func resourceDHCPStaticMapping() *resource[pfsenseapi.DHCPStaticMappingRequest, 
 	return &resource[pfsenseapi.DHCPStaticMappingRequest, pfsenseapi.DHCPStaticMapping, string]{
 		name:        "pfsense_dhcp_static_mapping",
 		description: "IPv4 DHCP Static Mapping ",
-		delete: func(ctx context.Context, client *pfsenseapi.Client, iface string, macAddress string) error {
-			return client.DHCP.DeleteStaticMapping(ctx, iface, macAddress)
+		delete: func(ctx context.Context, client *pfsenseapi.Client, interfaceName string, mac string) error {
+			return client.DHCP.DeleteStaticMapping(ctx, interfaceName, mac)
 		},
 		list: func(ctx context.Context, client *pfsenseapi.Client, iface string) ([]*pfsenseapi.DHCPStaticMapping, error) {
 			return client.DHCP.ListStaticMappings(ctx, iface)
@@ -83,7 +83,7 @@ func resourceDHCPStaticMapping() *resource[pfsenseapi.DHCPStaticMappingRequest, 
 					return req.IPaddr, nil
 				},
 			},
-			"hostname": {
+			"host_name": {
 				schema: &schema.Schema{
 					Type:         schema.TypeString,
 					Optional:     true,

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"reflect"
 	"strconv"
+	"strings"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
@@ -24,6 +25,7 @@ type deleteFunc[IdType ~string | ~int] func(context.Context, *pfsenseapi.Client,
 type disableFunc[RequestType any] func(*RequestType) error
 
 var dnsValidator schema.SchemaValidateFunc = validation.StringMatch(regexValidator(`^(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,6}$`), "Invalid DNS Name")
+var hostNameValidator schema.SchemaValidateFunc = validation.StringMatch(regexValidator(`^[a-zA-Z0-9]+$`), "Invalid Host Name")
 
 type resourceProperty[RequestType any, ResponseType any] struct {
 	schema          *schema.Schema
@@ -216,7 +218,7 @@ func (r *resource[RequestType, ResponseType, IdType]) getResourceId(d *schema.Re
 	if r.partitionId != "" {
 		parts := splitIntoArray(id, idSeparator)
 		partition = parts[0]
-		id = parts[1]
+		id = strings.Join(parts[1:], idSeparator)
 	}
 
 	var example interface{} = new(IdType)
@@ -281,27 +283,27 @@ func (r *resource[RequestType, ResponseType, IdType]) GetDeleteFunction() schema
 		}
 
 		if r.delete != nil {
-			err = r.delete(ctx, client, partition, id)
+			err := r.delete(ctx, client, partition, id)
 
 			if err != nil {
 				return diag.FromErr(err)
 			}
 		} else {
-			if err = r.UpdateFromId(ctx, client, d); err != nil {
+			if err := r.UpdateFromId(ctx, client, d); err != nil {
 				return diag.FromErr(err)
 			}
 
 			request := new(RequestType)
 
-			if err = r.updateRequest(d, request); err != nil {
+			if err := r.updateRequest(d, request); err != nil {
 				return diag.FromErr(err)
 			}
 
-			if err = r.disable(request); err != nil {
+			if err := r.disable(request); err != nil {
 				return diag.FromErr(err)
 			}
 
-			if _, err = r.update(ctx, client, id, request); err != nil {
+			if _, err := r.update(ctx, client, id, request); err != nil {
 				return diag.FromErr(err)
 			}
 		}

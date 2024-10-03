@@ -99,6 +99,7 @@ func Provider() *schema.Provider {
 	resourceDHCPStaticMapping().AddResource(provider)
 	resourceInterface().AddResource(provider)
 	resourceInterfaceVLAN().AddResource(provider)
+	resourceUnboundHostOverride().AddResource(provider)
 
 	return provider
 }

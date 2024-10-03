@@ -54,6 +54,7 @@ func Test_runResourceTests(t *testing.T) {
 		resourceFirewallRuleTest(),
 		resourceInterfaceTest(),
 		resourceInterfaceVLANTest(),
+		resourceUnboundHostOverrideTest(),
 	}
 
 	resourceMap := map[string]resourceTest{}
