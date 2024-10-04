@@ -5,12 +5,12 @@ go 1.21
 toolchain go1.21.5
 
 require (
+	github.com/AdaLogics/go-fuzz-headers v0.0.0-20230811130428-ced1acdcaa24
 	github.com/hashicorp/terraform-plugin-sdk/v2 v2.28.0
 	github.com/sjafferali/pfsense-api-goclient v0.1.5
 )
 
 require (
-	github.com/AdaLogics/go-fuzz-headers v0.0.0-20230811130428-ced1acdcaa24 // indirect
 	github.com/agext/levenshtein v1.2.2 // indirect
 	github.com/apparentlymart/go-textseg/v13 v13.0.0 // indirect
 	github.com/fatih/color v1.13.0 // indirect
@@ -55,4 +55,4 @@ require (
 	gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c // indirect
 )
 
-replace github.com/sjafferali/pfsense-api-goclient => ./dependencies/pfsense-api-goclient
+replace github.com/sjafferali/pfsense-api-goclient => github.com/elacy/pfsense-api-goclient v0.1.6
