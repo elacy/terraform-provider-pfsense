@@ -85,4 +85,4 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-replace github.com/sjafferali/pfsense-api-goclient => github.com/elacy/pfsense-api-goclient v0.1.6
+replace github.com/sjafferali/pfsense-api-goclient => github.com/elacy/pfsense-api-goclient v0.1.7
