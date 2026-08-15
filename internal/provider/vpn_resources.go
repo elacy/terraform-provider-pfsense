@@ -17,75 +17,6 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// Additional schema attribute constructors. schema_helpers.go covers the common
-// cases; these cover API-assigned (computed) fields, credentials, natural-key
-// attributes and list-of-string fields, all of which the VPN and system-extra
-// models use heavily.
-// ---------------------------------------------------------------------------
-
-// keyAttribute is a required, immutable natural-key attribute: its value
-// identifies the object in the API, so changing it replaces the resource.
-func keyAttribute(desc string) schema.StringAttribute {
-	return schema.StringAttribute{
-		Required:    true,
-		Description: desc,
-		PlanModifiers: []planmodifier.String{
-			stringplanmodifier.RequiresReplace(),
-		},
-	}
-}
-
-// parentIDAttribute is the required natural key of the parent object a
-// parent-child resource belongs to.
-func parentIDAttribute(desc string) schema.StringAttribute {
-	return schema.StringAttribute{
-		Required:    true,
-		Description: desc,
-		PlanModifiers: []planmodifier.String{
-			stringplanmodifier.RequiresReplace(),
-		},
-	}
-}
-
-func computedStringAttribute(desc string) schema.StringAttribute {
-	return schema.StringAttribute{Computed: true, Description: desc}
-}
-
-func computedIntAttribute(desc string) schema.Int64Attribute {
-	return schema.Int64Attribute{Computed: true, Description: desc}
-}
-
-func computedBoolAttribute(desc string) schema.BoolAttribute {
-	return schema.BoolAttribute{Computed: true, Description: desc}
-}
-
-func requiredIntAttribute(desc string) schema.Int64Attribute {
-	return schema.Int64Attribute{Required: true, Description: desc}
-}
-
-// sensitiveStringAttribute is an optional attribute holding a credential; its
-// value is redacted from plan output and logs.
-func sensitiveStringAttribute(desc string) schema.StringAttribute {
-	return schema.StringAttribute{Optional: true, Sensitive: true, Description: desc}
-}
-
-func requiredEnumAttribute(desc string, choices ...string) schema.StringAttribute {
-	return schema.StringAttribute{
-		Required:    true,
-		Description: desc,
-		Validators:  []validator.String{stringvalidator.OneOf(choices...)},
-	}
-}
-
-func optionalStringListAttribute(desc string) schema.ListAttribute {
-	return schema.ListAttribute{ElementType: types.StringType, Optional: true, Description: desc}
-}
-
-func requiredStringListAttribute(desc string) schema.ListAttribute {
-	return schema.ListAttribute{ElementType: types.StringType, Required: true, Description: desc}
-}
-
-// ---------------------------------------------------------------------------
 // pfsense_ipsec_phase1
 // Key: descr. The `encryption` collection is managed by
 // pfsense_ipsec_phase1_encryption.
@@ -370,13 +301,13 @@ const (
 )
 
 type ipsecPhase1EncryptionModel struct {
-	ID                       types.String `tfsdk:"id"`
-	ParentID                 types.String `tfsdk:"parent_id"`
-	EncryptionAlgorithmName  types.String `tfsdk:"encryption_algorithm_name"`
-	EncryptionAlgorithmKeyen types.Int64  `tfsdk:"encryption_algorithm_keylen"`
-	HashAlgorithm            types.String `tfsdk:"hash_algorithm"`
-	DHGroup                  types.Int64  `tfsdk:"dhgroup"`
-	PRFAlgorithm             types.String `tfsdk:"prf_algorithm"`
+	ID                        types.String `tfsdk:"id"`
+	ParentID                  types.String `tfsdk:"parent_id"`
+	EncryptionAlgorithmName   types.String `tfsdk:"encryption_algorithm_name"`
+	EncryptionAlgorithmKeylen types.Int64  `tfsdk:"encryption_algorithm_keylen"`
+	HashAlgorithm             types.String `tfsdk:"hash_algorithm"`
+	DHGroup                   types.Int64  `tfsdk:"dhgroup"`
+	PRFAlgorithm              types.String `tfsdk:"prf_algorithm"`
 }
 
 func NewIPsecPhase1EncryptionResource() resource.Resource { return &ipsecPhase1EncryptionResource{} }
@@ -455,7 +386,7 @@ func (r *ipsecPhase1EncryptionResource) find(ctx context.Context, pid any, algor
 func (r *ipsecPhase1EncryptionResource) payload(m ipsecPhase1EncryptionModel) map[string]any {
 	p := map[string]any{}
 	setString(p, "encryption_algorithm_name", m.EncryptionAlgorithmName)
-	setInt(p, "encryption_algorithm_keylen", m.EncryptionAlgorithmKeyen)
+	setInt(p, "encryption_algorithm_keylen", m.EncryptionAlgorithmKeylen)
 	setString(p, "hash_algorithm", m.HashAlgorithm)
 	setInt(p, "dhgroup", m.DHGroup)
 	setString(p, "prf_algorithm", m.PRFAlgorithm)
@@ -508,7 +439,7 @@ func (r *ipsecPhase1EncryptionResource) Read(ctx context.Context, req resource.R
 	state.ID = types.StringValue(r.key(parent, algorithm, hash, dhgroup))
 	state.ParentID = types.StringValue(parent)
 	state.EncryptionAlgorithmName = strValue(getString(obj, "encryption_algorithm_name"))
-	state.EncryptionAlgorithmKeyen = intValue(getInt(obj, "encryption_algorithm_keylen"))
+	state.EncryptionAlgorithmKeylen = intValue(getInt(obj, "encryption_algorithm_keylen"))
 	state.HashAlgorithm = strValue(getString(obj, "hash_algorithm"))
 	state.DHGroup = intValue(getInt(obj, "dhgroup"))
 	state.PRFAlgorithm = strValue(getString(obj, "prf_algorithm"))
@@ -1328,7 +1259,7 @@ func (r *openVPNClientResource) Delete(ctx context.Context, req resource.DeleteR
 	if !found {
 		return
 	}
-	if err := r.client.Delete(ctx, openVPNClientSingular, client.Query{}.Set("id", formatID(id))); err != nil {
+	if err := r.client.Delete(ctx, openVPNClientSingular, client.Query{}.Set("id", formatID(id)).Set("apply", "true")); err != nil {
 		resp.Diagnostics.AddError("failed to delete OpenVPN client", err.Error())
 	}
 }
@@ -1761,7 +1692,7 @@ func (r *openVPNServerResource) Delete(ctx context.Context, req resource.DeleteR
 	if !found {
 		return
 	}
-	if err := r.client.Delete(ctx, openVPNServerSingular, client.Query{}.Set("id", formatID(id))); err != nil {
+	if err := r.client.Delete(ctx, openVPNServerSingular, client.Query{}.Set("id", formatID(id)).Set("apply", "true")); err != nil {
 		resp.Diagnostics.AddError("failed to delete OpenVPN server", err.Error())
 	}
 }
@@ -2004,7 +1935,7 @@ func (r *openVPNCSOResource) Delete(ctx context.Context, req resource.DeleteRequ
 	if !found {
 		return
 	}
-	if err := r.client.Delete(ctx, openVPNCSOSingular, client.Query{}.Set("id", formatID(id))); err != nil {
+	if err := r.client.Delete(ctx, openVPNCSOSingular, client.Query{}.Set("id", formatID(id)).Set("apply", "true")); err != nil {
 		resp.Diagnostics.AddError("failed to delete OpenVPN client specific override", err.Error())
 	}
 }
@@ -2375,7 +2306,7 @@ func (r *wireGuardTunnelAddressResource) Delete(ctx context.Context, req resourc
 	if !found {
 		return
 	}
-	q := client.Query{}.Set("parent_id", formatID(pid)).Set("id", formatID(id))
+	q := client.Query{}.Set("parent_id", formatID(pid)).Set("id", formatID(id)).Set("apply", "true")
 	if err := r.client.Delete(ctx, wireGuardTunnelAddressSingular, q); err != nil {
 		resp.Diagnostics.AddError("failed to delete WireGuard tunnel address", err.Error())
 	}
@@ -2718,7 +2649,7 @@ func (r *wireGuardPeerAllowedIPResource) Delete(ctx context.Context, req resourc
 	if !found {
 		return
 	}
-	q := client.Query{}.Set("parent_id", formatID(pid)).Set("id", formatID(id))
+	q := client.Query{}.Set("parent_id", formatID(pid)).Set("id", formatID(id)).Set("apply", "true")
 	if err := r.client.Delete(ctx, wireGuardPeerAllowedIPSingular, q); err != nil {
 		resp.Diagnostics.AddError("failed to delete WireGuard peer allowed IP", err.Error())
 	}
