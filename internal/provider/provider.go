@@ -138,6 +138,38 @@ func (p *pfsenseProvider) Resources(_ context.Context) []func() resource.Resourc
 		NewSystemTimezoneResource,
 		NewServicesNTPSettingsResource,
 		NewServicesCronJobResource,
+		// firewall NAT
+		NewFirewallNATPortForwardResource,
+		NewFirewallNATOneToOneResource,
+		NewFirewallNATOutboundResource,
+		// traffic shaper / limiter / queues / virtual IPs
+		NewVirtualIPResource,
+		NewTrafficShaperResource,
+		NewTrafficShaperLimiterResource,
+		NewTrafficShaperQueueResource,
+		NewTrafficShaperLimiterQueueResource,
+		// interfaces
+		NewNetworkInterfaceResource,
+		NewInterfaceBridgeResource,
+		NewInterfaceGREResource,
+		NewInterfaceLAGGResource,
+		NewInterfaceGroupResource,
+		// services extras
+		NewDHCPServerStaticMappingResource,
+		NewDHCPServerAddressPoolResource,
+		NewDHCPServerCustomOptionResource,
+		NewDNSResolverDomainOverrideResource,
+		NewDNSResolverHostOverrideAliasResource,
+		NewDNSForwarderHostOverrideResource,
+		NewDNSForwarderHostOverrideAliasResource,
+		NewNTPTimeServerResource,
+		NewServiceWatchdogResource,
+		// BIND / FreeRADIUS
+		NewBindAccessListResource,
+		NewBindViewResource,
+		NewBindZoneResource,
+		NewFreeradiusMACResource,
+		NewFreeradiusUserResource,
 	}
 }
 

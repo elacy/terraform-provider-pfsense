@@ -64,6 +64,102 @@ func findByKeys(ctx context.Context, c *client.Client, pluralPath string, filter
 	return nil, nil, false, nil
 }
 
+// findByKeyInParent lists pluralPath scoped to a parent (parent_id query param)
+// and keyField__exact=keyValue, returning the first matching object. Used for
+// parent-child resources where the natural key is only unique within a parent.
+func findByKeyInParent(ctx context.Context, c *client.Client, pluralPath, parentID, keyField, keyValue string) (id any, raw map[string]any, found bool, err error) {
+	items, err := c.List(ctx, pluralPath, client.Query{}.Set("parent_id", parentID).Set(keyField+"__exact", keyValue))
+	if err != nil {
+		return nil, nil, false, err
+	}
+	for _, item := range items {
+		var obj map[string]any
+		if err := json.Unmarshal(item, &obj); err != nil {
+			return nil, nil, false, fmt.Errorf("decoding object: %w", err)
+		}
+		if objectKey(obj, keyField) == keyValue {
+			return obj["id"], obj, true, nil
+		}
+	}
+	return nil, nil, false, nil
+}
+
+// findByKeysInParent lists pluralPath scoped to a parent (parent_id query param)
+// and returns the first object whose fields match every key/value in filters.
+func findByKeysInParent(ctx context.Context, c *client.Client, pluralPath, parentID string, filters map[string]string) (id any, raw map[string]any, found bool, err error) {
+	items, err := c.List(ctx, pluralPath, client.Query{}.Set("parent_id", parentID))
+	if err != nil {
+		return nil, nil, false, err
+	}
+	for _, item := range items {
+		var obj map[string]any
+		if err := json.Unmarshal(item, &obj); err != nil {
+			return nil, nil, false, fmt.Errorf("decoding object: %w", err)
+		}
+		match := true
+		for k, v := range filters {
+			if objectKey(obj, k) != v {
+				match = false
+				break
+			}
+		}
+		if match {
+			return obj["id"], obj, true, nil
+		}
+	}
+	return nil, nil, false, nil
+}
+
+// resolveParentID resolves a parent's natural key (a unique field value) to its
+// native `id` (array index or string config key) by querying the parent's
+// plural endpoint with keyField__exact=keyValue. The result is used as the
+// `parent_id` for parent-child resources, which the v2 API addresses by the
+// parent's actual config key rather than its natural key.
+func resolveParentID(ctx context.Context, c *client.Client, parentPluralPath, keyField, keyValue string) (any, error) {
+	items, err := c.List(ctx, parentPluralPath, client.Query{}.Set(keyField+"__exact", keyValue))
+	if err != nil {
+		return nil, err
+	}
+	for _, item := range items {
+		var obj map[string]any
+		if err := json.Unmarshal(item, &obj); err != nil {
+			return nil, fmt.Errorf("decoding object: %w", err)
+		}
+		if objectKey(obj, keyField) == keyValue {
+			return obj["id"], nil
+		}
+	}
+	return nil, fmt.Errorf("parent object with %s %q not found", keyField, keyValue)
+}
+
+// resolveParentIDByKeys resolves a parent keyed by a composite of fields to its
+// native `id` by querying the parent's plural endpoint (unfiltered) and matching
+// every key/value in filters. Used for parents with unique_together identity
+// (e.g. DNS resolver host overrides, keyed by host+domain).
+func resolveParentIDByKeys(ctx context.Context, c *client.Client, parentPluralPath string, filters map[string]string) (any, error) {
+	items, err := c.List(ctx, parentPluralPath, nil)
+	if err != nil {
+		return nil, err
+	}
+	for _, item := range items {
+		var obj map[string]any
+		if err := json.Unmarshal(item, &obj); err != nil {
+			return nil, fmt.Errorf("decoding object: %w", err)
+		}
+		match := true
+		for k, v := range filters {
+			if objectKey(obj, k) != v {
+				match = false
+				break
+			}
+		}
+		if match {
+			return obj["id"], nil
+		}
+	}
+	return nil, fmt.Errorf("parent object not found")
+}
+
 // formatID converts a native id (int/string) into a query-parameter string.
 func formatID(id any) string {
 	switch v := id.(type) {
