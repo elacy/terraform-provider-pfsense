@@ -2,7 +2,6 @@ package provider
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/elacy/terraform-provider-pfsense/v2/internal/client"
 	"github.com/hashicorp/terraform-plugin-framework/path"
@@ -272,7 +271,7 @@ func (r *systemCRLRevokedCertificateResource) find(ctx context.Context, parent, 
 		return nil, nil, false, err
 	}
 	if !ok {
-		return nil, nil, false, fmt.Errorf("parent object with descr %q not found", parent)
+		return nil, nil, false, nil
 	}
 	for i, cert := range getSliceMap(crl, "cert") {
 		if objectKey(cert, "certref") != certref {

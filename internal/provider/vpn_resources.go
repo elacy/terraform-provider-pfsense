@@ -285,8 +285,12 @@ func (r *ipsecPhase1Resource) ImportState(ctx context.Context, req resource.Impo
 // ---------------------------------------------------------------------------
 // pfsense_ipsec_phase1_encryption
 // Parent: IPsec phase 1 (natural key = descr). Child key:
-// encryption_algorithm_name|hash_algorithm|dhgroup.
-// Resource ID = <phase1 descr>|<algorithm>|<hash>|<dhgroup>.
+// encryption_algorithm_name|hash_algorithm|dhgroup|encryption_algorithm_keylen.
+// Resource ID = <phase1 descr>|<algorithm>|<hash>|<dhgroup>|<keylen>.
+//
+// The key length is part of the key because a phase 1 commonly carries the same
+// algorithm/hash/DH group at several key lengths (AES-128 alongside AES-256);
+// without it those rows would collide on a single Terraform ID.
 // ---------------------------------------------------------------------------
 
 type ipsecPhase1EncryptionResource struct{ client *client.Client }
@@ -320,7 +324,7 @@ func (r *ipsecPhase1EncryptionResource) Configure(ctx context.Context, req resou
 }
 func (r *ipsecPhase1EncryptionResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Description: "Manages an encryption proposal on an IPsec phase 1 entry. Identified by the parent phase 1 description and the algorithm, hash and DH group combination.",
+		Description: "Manages an encryption proposal on an IPsec phase 1 entry. Identified by the parent phase 1 description and the algorithm, key length, hash and DH group combination.",
 		Attributes: map[string]schema.Attribute{
 			"id":        computedIDAttribute(),
 			"parent_id": parentIDAttribute("The `descr` of the parent IPsec phase 1 entry."),
@@ -334,7 +338,13 @@ func (r *ipsecPhase1EncryptionResource) Schema(_ context.Context, _ resource.Sch
 					stringplanmodifier.RequiresReplace(),
 				},
 			},
-			"encryption_algorithm_keylen": optionalIntAttribute("The key length for the encryption algorithm. Required for variable key length algorithms."),
+			"encryption_algorithm_keylen": schema.Int64Attribute{
+				Optional:    true,
+				Description: "The key length for the encryption algorithm. Required for variable key length algorithms. Part of this item's identity, so changing it replaces the resource.",
+				PlanModifiers: []planmodifier.Int64{
+					int64planmodifier.RequiresReplace(),
+				},
+			},
 			"hash_algorithm": schema.StringAttribute{
 				Required:    true,
 				Description: "The hash algorithm to use for this P1 encryption item.",
@@ -357,30 +367,51 @@ func (r *ipsecPhase1EncryptionResource) Schema(_ context.Context, _ resource.Sch
 	}
 }
 
-func (r *ipsecPhase1EncryptionResource) key(parent, algorithm, hash string, dhgroup int64) string {
-	return fmt.Sprintf("%s|%s|%s|%d", parent, algorithm, hash, dhgroup)
+func (r *ipsecPhase1EncryptionResource) key(parent, algorithm, hash string, dhgroup, keylen int64) string {
+	return fmt.Sprintf("%s|%s|%s|%d|%d", parent, algorithm, hash, dhgroup, keylen)
 }
 
 // identity returns the parent descr and the composite child key, preferring the
 // state/plan attributes and falling back to the resource ID (set on import).
-func (r *ipsecPhase1EncryptionResource) identity(m ipsecPhase1EncryptionModel) (parent, algorithm, hash string, dhgroup int64) {
+func (r *ipsecPhase1EncryptionResource) identity(m ipsecPhase1EncryptionModel) (parent, algorithm, hash string, dhgroup, keylen int64) {
 	parent = m.ParentID.ValueString()
 	algorithm = m.EncryptionAlgorithmName.ValueString()
 	hash = m.HashAlgorithm.ValueString()
 	dhgroup = m.DHGroup.ValueInt64()
+	keylen = m.EncryptionAlgorithmKeylen.ValueInt64()
 	if parent == "" {
-		parts := splitKeyN(m.ID.ValueString(), 4)
-		parent, algorithm, hash, dhgroup = parts[0], parts[1], parts[2], atoi64(parts[3])
+		parts := splitKeyN(m.ID.ValueString(), 5)
+		parent, algorithm, hash = parts[0], parts[1], parts[2]
+		dhgroup, keylen = atoi64(parts[3]), atoi64(parts[4])
 	}
-	return parent, algorithm, hash, dhgroup
+	return parent, algorithm, hash, dhgroup, keylen
 }
 
-func (r *ipsecPhase1EncryptionResource) find(ctx context.Context, pid any, algorithm, hash string, dhgroup int64) (any, map[string]any, bool, error) {
-	return findByKeysInParent(ctx, r.client, ipsecPhase1EncryptionPlural, formatID(pid), map[string]string{
+// find locates the proposal row within its parent phase 1. keylen only narrows
+// the match when it is set: fixed-key-length algorithms (the GCM variants,
+// ChaCha20-Poly1305) carry no key length at all, and for those the remaining
+// fields already identify the row uniquely.
+func (r *ipsecPhase1EncryptionResource) find(ctx context.Context, pid any, algorithm, hash string, dhgroup, keylen int64) (any, map[string]any, bool, error) {
+	filters := map[string]string{
 		"encryption_algorithm_name": algorithm,
 		"hash_algorithm":            hash,
 		"dhgroup":                   formatID(dhgroup),
-	})
+	}
+	if keylen != 0 {
+		filters["encryption_algorithm_keylen"] = formatID(keylen)
+	}
+	return findByKeysInParent(ctx, r.client, ipsecPhase1EncryptionPlural, formatID(pid), filters)
+}
+
+// keylenValue renders an optional key length back into state. A zero means the
+// algorithm has a fixed key length and carries none, which must stay null so it
+// does not read back as drift against an unset config value — and, since key
+// length is part of the natural key, as a replace loop.
+func keylenValue(keylen int64) types.Int64 {
+	if keylen == 0 {
+		return types.Int64Null()
+	}
+	return types.Int64Value(keylen)
 }
 
 func (r *ipsecPhase1EncryptionResource) payload(m ipsecPhase1EncryptionModel) map[string]any {
@@ -399,7 +430,7 @@ func (r *ipsecPhase1EncryptionResource) Create(ctx context.Context, req resource
 	if resp.Diagnostics.HasError() || r.client == nil {
 		return
 	}
-	parent, algorithm, hash, dhgroup := r.identity(plan)
+	parent, algorithm, hash, dhgroup, keylen := r.identity(plan)
 	pid, err := resolveParentID(ctx, r.client, ipsecPhase1Plural, "descr", parent)
 	if err != nil {
 		resp.Diagnostics.AddError("failed to resolve parent IPsec phase 1 entry", err.Error())
@@ -411,7 +442,7 @@ func (r *ipsecPhase1EncryptionResource) Create(ctx context.Context, req resource
 		resp.Diagnostics.AddError("failed to create IPsec phase 1 encryption item", err.Error())
 		return
 	}
-	plan.ID = types.StringValue(r.key(parent, algorithm, hash, dhgroup))
+	plan.ID = types.StringValue(r.key(parent, algorithm, hash, dhgroup, keylen))
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
@@ -421,13 +452,13 @@ func (r *ipsecPhase1EncryptionResource) Read(ctx context.Context, req resource.R
 	if resp.Diagnostics.HasError() || r.client == nil {
 		return
 	}
-	parent, algorithm, hash, dhgroup := r.identity(state)
+	parent, algorithm, hash, dhgroup, keylen := r.identity(state)
 	pid, err := resolveParentID(ctx, r.client, ipsecPhase1Plural, "descr", parent)
 	if err != nil {
 		resp.Diagnostics.AddError("failed to resolve parent IPsec phase 1 entry", err.Error())
 		return
 	}
-	_, obj, found, err := r.find(ctx, pid, algorithm, hash, dhgroup)
+	_, obj, found, err := r.find(ctx, pid, algorithm, hash, dhgroup, keylen)
 	if err != nil {
 		resp.Diagnostics.AddError("failed to read IPsec phase 1 encryption item", err.Error())
 		return
@@ -436,10 +467,10 @@ func (r *ipsecPhase1EncryptionResource) Read(ctx context.Context, req resource.R
 		resp.State.RemoveResource(ctx)
 		return
 	}
-	state.ID = types.StringValue(r.key(parent, algorithm, hash, dhgroup))
+	state.ID = types.StringValue(r.key(parent, algorithm, hash, dhgroup, keylen))
 	state.ParentID = types.StringValue(parent)
 	state.EncryptionAlgorithmName = strValue(getString(obj, "encryption_algorithm_name"))
-	state.EncryptionAlgorithmKeylen = intValue(getInt(obj, "encryption_algorithm_keylen"))
+	state.EncryptionAlgorithmKeylen = keylenValue(keylen)
 	state.HashAlgorithm = strValue(getString(obj, "hash_algorithm"))
 	state.DHGroup = intValue(getInt(obj, "dhgroup"))
 	state.PRFAlgorithm = strValue(getString(obj, "prf_algorithm"))
@@ -452,19 +483,19 @@ func (r *ipsecPhase1EncryptionResource) Update(ctx context.Context, req resource
 	if resp.Diagnostics.HasError() || r.client == nil {
 		return
 	}
-	parent, algorithm, hash, dhgroup := r.identity(plan)
+	parent, algorithm, hash, dhgroup, keylen := r.identity(plan)
 	pid, err := resolveParentID(ctx, r.client, ipsecPhase1Plural, "descr", parent)
 	if err != nil {
 		resp.Diagnostics.AddError("failed to resolve parent IPsec phase 1 entry", err.Error())
 		return
 	}
-	id, _, found, err := r.find(ctx, pid, algorithm, hash, dhgroup)
+	id, _, found, err := r.find(ctx, pid, algorithm, hash, dhgroup, keylen)
 	if err != nil {
 		resp.Diagnostics.AddError("failed to update IPsec phase 1 encryption item", err.Error())
 		return
 	}
 	if !found {
-		resp.Diagnostics.AddError("IPsec phase 1 encryption item not found", "encryption item "+r.key(parent, algorithm, hash, dhgroup)+" no longer exists")
+		resp.Diagnostics.AddError("IPsec phase 1 encryption item not found", "encryption item "+r.key(parent, algorithm, hash, dhgroup, keylen)+" no longer exists")
 		return
 	}
 	payload := r.payload(plan)
@@ -474,7 +505,7 @@ func (r *ipsecPhase1EncryptionResource) Update(ctx context.Context, req resource
 		resp.Diagnostics.AddError("failed to update IPsec phase 1 encryption item", err.Error())
 		return
 	}
-	plan.ID = types.StringValue(r.key(parent, algorithm, hash, dhgroup))
+	plan.ID = types.StringValue(r.key(parent, algorithm, hash, dhgroup, keylen))
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
@@ -484,13 +515,13 @@ func (r *ipsecPhase1EncryptionResource) Delete(ctx context.Context, req resource
 	if resp.Diagnostics.HasError() || r.client == nil {
 		return
 	}
-	parent, algorithm, hash, dhgroup := r.identity(state)
+	parent, algorithm, hash, dhgroup, keylen := r.identity(state)
 	pid, err := resolveParentID(ctx, r.client, ipsecPhase1Plural, "descr", parent)
 	if err != nil {
 		resp.Diagnostics.AddError("failed to resolve parent IPsec phase 1 entry", err.Error())
 		return
 	}
-	id, _, found, err := r.find(ctx, pid, algorithm, hash, dhgroup)
+	id, _, found, err := r.find(ctx, pid, algorithm, hash, dhgroup, keylen)
 	if err != nil {
 		resp.Diagnostics.AddError("failed to delete IPsec phase 1 encryption item", err.Error())
 		return
@@ -744,8 +775,12 @@ func (r *ipsecPhase2Resource) ImportState(ctx context.Context, req resource.Impo
 
 // ---------------------------------------------------------------------------
 // pfsense_ipsec_phase2_encryption
-// Parent: IPsec phase 2 (natural key = descr). Child key: name.
-// Resource ID = <phase2 descr>|<name>.
+// Parent: IPsec phase 2 (natural key = descr). Child key: name|keylen.
+// Resource ID = <phase2 descr>|<name>|<keylen>.
+//
+// A phase 2 encryption row is exactly {name, keylen}, so the key length is the
+// only thing separating the AES-128 and AES-256 proposals that are routinely
+// configured side by side; keying on name alone would collide them.
 // ---------------------------------------------------------------------------
 
 type ipsecPhase2EncryptionResource struct{ client *client.Client }
@@ -776,7 +811,7 @@ func (r *ipsecPhase2EncryptionResource) Configure(ctx context.Context, req resou
 }
 func (r *ipsecPhase2EncryptionResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Description: "Manages an encryption proposal on an IPsec phase 2 entry. Identified by the parent phase 2 description and the algorithm name.",
+		Description: "Manages an encryption proposal on an IPsec phase 2 entry. Identified by the parent phase 2 description and the algorithm name and key length.",
 		Attributes: map[string]schema.Attribute{
 			"id":        computedIDAttribute(),
 			"parent_id": parentIDAttribute("The `descr` of the parent IPsec phase 2 entry."),
@@ -790,20 +825,43 @@ func (r *ipsecPhase2EncryptionResource) Schema(_ context.Context, _ resource.Sch
 					stringplanmodifier.RequiresReplace(),
 				},
 			},
-			"keylen": optionalIntAttribute("The key length for the encryption algorithm. Required for variable key length algorithms."),
+			"keylen": schema.Int64Attribute{
+				Optional:    true,
+				Description: "The key length for the encryption algorithm. Required for variable key length algorithms. Part of this item's identity, so changing it replaces the resource.",
+				PlanModifiers: []planmodifier.Int64{
+					int64planmodifier.RequiresReplace(),
+				},
+			},
 		},
 	}
 }
 
-func (r *ipsecPhase2EncryptionResource) key(parent, name string) string { return parent + "|" + name }
+func (r *ipsecPhase2EncryptionResource) key(parent, name string, keylen int64) string {
+	return fmt.Sprintf("%s|%s|%d", parent, name, keylen)
+}
 
-func (r *ipsecPhase2EncryptionResource) identity(m ipsecPhase2EncryptionModel) (parent, name string) {
+// identity returns the parent descr and the composite child key, preferring the
+// state/plan attributes and falling back to the resource ID (set on import).
+func (r *ipsecPhase2EncryptionResource) identity(m ipsecPhase2EncryptionModel) (parent, name string, keylen int64) {
 	parent = m.ParentID.ValueString()
 	name = m.Name.ValueString()
+	keylen = m.Keylen.ValueInt64()
 	if parent == "" {
-		parent, name = splitRouteKey(m.ID.ValueString())
+		parts := splitKeyN(m.ID.ValueString(), 3)
+		parent, name, keylen = parts[0], parts[1], atoi64(parts[2])
 	}
-	return parent, name
+	return parent, name, keylen
+}
+
+// find locates the proposal row within its parent phase 2. As on phase 1,
+// keylen only narrows the match when it is set, since fixed-key-length
+// algorithms carry no key length.
+func (r *ipsecPhase2EncryptionResource) find(ctx context.Context, pid any, name string, keylen int64) (any, map[string]any, bool, error) {
+	filters := map[string]string{"name": name}
+	if keylen != 0 {
+		filters["keylen"] = formatID(keylen)
+	}
+	return findByKeysInParent(ctx, r.client, ipsecPhase2EncryptionPlural, formatID(pid), filters)
 }
 
 func (r *ipsecPhase2EncryptionResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
@@ -812,7 +870,7 @@ func (r *ipsecPhase2EncryptionResource) Create(ctx context.Context, req resource
 	if resp.Diagnostics.HasError() || r.client == nil {
 		return
 	}
-	parent, name := r.identity(plan)
+	parent, name, keylen := r.identity(plan)
 	pid, err := resolveParentID(ctx, r.client, ipsecPhase2Plural, "descr", parent)
 	if err != nil {
 		resp.Diagnostics.AddError("failed to resolve parent IPsec phase 2 entry", err.Error())
@@ -825,7 +883,7 @@ func (r *ipsecPhase2EncryptionResource) Create(ctx context.Context, req resource
 		resp.Diagnostics.AddError("failed to create IPsec phase 2 encryption item", err.Error())
 		return
 	}
-	plan.ID = types.StringValue(r.key(parent, name))
+	plan.ID = types.StringValue(r.key(parent, name, keylen))
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
@@ -835,13 +893,13 @@ func (r *ipsecPhase2EncryptionResource) Read(ctx context.Context, req resource.R
 	if resp.Diagnostics.HasError() || r.client == nil {
 		return
 	}
-	parent, name := r.identity(state)
+	parent, name, keylen := r.identity(state)
 	pid, err := resolveParentID(ctx, r.client, ipsecPhase2Plural, "descr", parent)
 	if err != nil {
 		resp.Diagnostics.AddError("failed to resolve parent IPsec phase 2 entry", err.Error())
 		return
 	}
-	_, obj, found, err := findByKeyInParent(ctx, r.client, ipsecPhase2EncryptionPlural, formatID(pid), "name", name)
+	_, _, found, err := r.find(ctx, pid, name, keylen)
 	if err != nil {
 		resp.Diagnostics.AddError("failed to read IPsec phase 2 encryption item", err.Error())
 		return
@@ -850,10 +908,10 @@ func (r *ipsecPhase2EncryptionResource) Read(ctx context.Context, req resource.R
 		resp.State.RemoveResource(ctx)
 		return
 	}
-	state.ID = types.StringValue(r.key(parent, name))
+	state.ID = types.StringValue(r.key(parent, name, keylen))
 	state.ParentID = types.StringValue(parent)
 	state.Name = types.StringValue(name)
-	state.Keylen = intValue(getInt(obj, "keylen"))
+	state.Keylen = keylenValue(keylen)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
@@ -863,19 +921,19 @@ func (r *ipsecPhase2EncryptionResource) Update(ctx context.Context, req resource
 	if resp.Diagnostics.HasError() || r.client == nil {
 		return
 	}
-	parent, name := r.identity(plan)
+	parent, name, keylen := r.identity(plan)
 	pid, err := resolveParentID(ctx, r.client, ipsecPhase2Plural, "descr", parent)
 	if err != nil {
 		resp.Diagnostics.AddError("failed to resolve parent IPsec phase 2 entry", err.Error())
 		return
 	}
-	id, _, found, err := findByKeyInParent(ctx, r.client, ipsecPhase2EncryptionPlural, formatID(pid), "name", name)
+	id, _, found, err := r.find(ctx, pid, name, keylen)
 	if err != nil {
 		resp.Diagnostics.AddError("failed to update IPsec phase 2 encryption item", err.Error())
 		return
 	}
 	if !found {
-		resp.Diagnostics.AddError("IPsec phase 2 encryption item not found", "encryption item "+r.key(parent, name)+" no longer exists")
+		resp.Diagnostics.AddError("IPsec phase 2 encryption item not found", "encryption item "+r.key(parent, name, keylen)+" no longer exists")
 		return
 	}
 	payload := map[string]any{"id": id, "parent_id": pid}
@@ -885,7 +943,7 @@ func (r *ipsecPhase2EncryptionResource) Update(ctx context.Context, req resource
 		resp.Diagnostics.AddError("failed to update IPsec phase 2 encryption item", err.Error())
 		return
 	}
-	plan.ID = types.StringValue(r.key(parent, name))
+	plan.ID = types.StringValue(r.key(parent, name, keylen))
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
@@ -895,13 +953,13 @@ func (r *ipsecPhase2EncryptionResource) Delete(ctx context.Context, req resource
 	if resp.Diagnostics.HasError() || r.client == nil {
 		return
 	}
-	parent, name := r.identity(state)
+	parent, name, keylen := r.identity(state)
 	pid, err := resolveParentID(ctx, r.client, ipsecPhase2Plural, "descr", parent)
 	if err != nil {
 		resp.Diagnostics.AddError("failed to resolve parent IPsec phase 2 entry", err.Error())
 		return
 	}
-	id, _, found, err := findByKeyInParent(ctx, r.client, ipsecPhase2EncryptionPlural, formatID(pid), "name", name)
+	id, _, found, err := r.find(ctx, pid, name, keylen)
 	if err != nil {
 		resp.Diagnostics.AddError("failed to delete IPsec phase 2 encryption item", err.Error())
 		return
@@ -1008,7 +1066,7 @@ func (r *openVPNClientResource) Schema(_ context.Context, _ resource.SchemaReque
 			"vpnif":                 computedStringAttribute("The VPN interface name for this OpenVPN client, assigned by the system."),
 			"description":           keyAttribute("The description for this OpenVPN client. Unique; immutable after creation."),
 			"disable":               optionalBoolAttribute("Disable this OpenVPN client."),
-			"mode":                  requiredEnumAttribute("The OpenVPN client mode.", "p2p_tls"),
+			"mode":                  schema.StringAttribute{Optional: true, Description: "The OpenVPN client mode. Defaults to p2p_tls when unset.", Validators: []validator.String{stringvalidator.OneOf("p2p_tls")}},
 			"dev_mode":              requiredEnumAttribute("The carrier mode for this OpenVPN client: `tun` (layer 3) or `tap` (layer 2).", "tun", "tap"),
 			"protocol":              requiredEnumAttribute("The protocol used by this OpenVPN client.", "UDP4", "UDP6", "UDP", "TCP4", "TCP6", "TCP"),
 			"interface":             optionalStringAttribute("The interface used by the firewall to originate this OpenVPN client connection."),
