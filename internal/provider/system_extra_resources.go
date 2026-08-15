@@ -1,0 +1,1029 @@
+package provider
+
+import (
+	"context"
+
+	"github.com/elacy/terraform-provider-pfsense/v2/internal/client"
+	"github.com/hashicorp/terraform-plugin-framework/path"
+	"github.com/hashicorp/terraform-plugin-framework/resource"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/types"
+)
+
+// ---------------------------------------------------------------------------
+// pfsense_system_crl
+// Key: descr. The `cert` collection is managed by
+// pfsense_system_crl_revoked_certificate.
+// ---------------------------------------------------------------------------
+
+type systemCRLResource struct{ client *client.Client }
+
+var _ resource.Resource = (*systemCRLResource)(nil)
+var _ resource.ResourceWithConfigure = (*systemCRLResource)(nil)
+var _ resource.ResourceWithImportState = (*systemCRLResource)(nil)
+
+const (
+	systemCRLPlural   = "/api/v2/system/crls"
+	systemCRLSingular = "/api/v2/system/crl"
+)
+
+type systemCRLModel struct {
+	ID       types.String `tfsdk:"id"`
+	Refid    types.String `tfsdk:"refid"`
+	Caref    types.String `tfsdk:"caref"`
+	Descr    types.String `tfsdk:"descr"`
+	Method   types.String `tfsdk:"method"`
+	Lifetime types.Int64  `tfsdk:"lifetime"`
+	Serial   types.Int64  `tfsdk:"serial"`
+	Text     types.String `tfsdk:"text"`
+}
+
+func NewSystemCRLResource() resource.Resource { return &systemCRLResource{} }
+
+func (r *systemCRLResource) Metadata(_ context.Context, _ resource.MetadataRequest, resp *resource.MetadataResponse) {
+	resp.TypeName = "pfsense_system_crl"
+}
+func (r *systemCRLResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
+	r.client = resourceClient(ctx, req, resp)
+}
+func (r *systemCRLResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
+	resp.Schema = schema.Schema{
+		Description: "Manages a certificate revocation list (CRL). Identified by its `descr` description. Revoked certificates on an internal CRL are managed by `pfsense_system_crl_revoked_certificate`.",
+		Attributes: map[string]schema.Attribute{
+			"id":       computedIDAttribute(),
+			"refid":    computedStringAttribute("The unique ID for this CRL, assigned by the system."),
+			"caref":    requiredStringAttribute("The `refid` of the certificate authority this CRL is associated with."),
+			"descr":    keyAttribute("The unique name/description for this CRL. Immutable after creation."),
+			"method":   requiredEnumAttribute("The method used to generate this CRL.", "existing", "internal"),
+			"lifetime": optionalIntAttribute("The lifetime of this CRL in days (`method` must be `internal`)."),
+			"serial":   optionalIntAttribute("The serial number of this CRL (`method` must be `internal`)."),
+			"text":     optionalStringAttribute("The raw x509 CRL data (`method` must be `existing`)."),
+		},
+	}
+}
+
+func (r *systemCRLResource) payload(m systemCRLModel) map[string]any {
+	p := map[string]any{}
+	setString(p, "caref", m.Caref)
+	setString(p, "descr", m.Descr)
+	setString(p, "method", m.Method)
+	setInt(p, "lifetime", m.Lifetime)
+	setInt(p, "serial", m.Serial)
+	setString(p, "text", m.Text)
+	return p
+}
+
+func (r *systemCRLResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
+	var plan systemCRLModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	if resp.Diagnostics.HasError() || r.client == nil {
+		return
+	}
+	raw, err := r.client.Create(ctx, systemCRLSingular, r.payload(plan))
+	if err != nil {
+		resp.Diagnostics.AddError("failed to create CRL", err.Error())
+		return
+	}
+	obj, err := decodeObject(raw)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to create CRL", err.Error())
+		return
+	}
+	plan.Refid = strValue(getString(obj, "refid"))
+	plan.ID = types.StringValue(plan.Descr.ValueString())
+	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+}
+
+func (r *systemCRLResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
+	var state systemCRLModel
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	if resp.Diagnostics.HasError() || r.client == nil {
+		return
+	}
+	descr := state.Descr.ValueString()
+	if descr == "" {
+		descr = state.ID.ValueString()
+	}
+	_, obj, found, err := findByKey(ctx, r.client, systemCRLPlural, "descr", descr)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to read CRL", err.Error())
+		return
+	}
+	if !found {
+		resp.State.RemoveResource(ctx)
+		return
+	}
+	state.ID = types.StringValue(descr)
+	state.Refid = strValue(getString(obj, "refid"))
+	state.Caref = strValue(getString(obj, "caref"))
+	state.Descr = types.StringValue(descr)
+	state.Method = strValue(getString(obj, "method"))
+	state.Lifetime = intValue(getInt(obj, "lifetime"))
+	state.Serial = intValue(getInt(obj, "serial"))
+	state.Text = strValue(getString(obj, "text"))
+	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
+}
+
+func (r *systemCRLResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	var plan systemCRLModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	if resp.Diagnostics.HasError() || r.client == nil {
+		return
+	}
+	descr := plan.Descr.ValueString()
+	if descr == "" {
+		descr = plan.ID.ValueString()
+	}
+	id, _, found, err := findByKey(ctx, r.client, systemCRLPlural, "descr", descr)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to update CRL", err.Error())
+		return
+	}
+	if !found {
+		resp.Diagnostics.AddError("CRL not found", "CRL "+descr+" no longer exists")
+		return
+	}
+	payload := r.payload(plan)
+	payload["id"] = id
+	if _, err := r.client.Update(ctx, systemCRLSingular, payload); err != nil {
+		resp.Diagnostics.AddError("failed to update CRL", err.Error())
+		return
+	}
+	plan.ID = types.StringValue(descr)
+	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+}
+
+func (r *systemCRLResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
+	var state systemCRLModel
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	if resp.Diagnostics.HasError() || r.client == nil {
+		return
+	}
+	descr := state.Descr.ValueString()
+	if descr == "" {
+		descr = state.ID.ValueString()
+	}
+	id, _, found, err := findByKey(ctx, r.client, systemCRLPlural, "descr", descr)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to delete CRL", err.Error())
+		return
+	}
+	if !found {
+		return
+	}
+	if err := r.client.Delete(ctx, systemCRLSingular, client.Query{}.Set("id", formatID(id))); err != nil {
+		resp.Diagnostics.AddError("failed to delete CRL", err.Error())
+	}
+}
+
+func (r *systemCRLResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
+}
+
+// ---------------------------------------------------------------------------
+// pfsense_system_crl_revoked_certificate
+// Parent: CRL (natural key = descr). Child key: certref.
+// Resource ID = <crl descr>|<certref>.
+//
+// The revoked certificate model has no plural endpoint, so children are located
+// by scanning the parent CRL's `cert` collection; a nested object's id is its
+// index within that collection.
+// ---------------------------------------------------------------------------
+
+type systemCRLRevokedCertificateResource struct{ client *client.Client }
+
+var _ resource.Resource = (*systemCRLRevokedCertificateResource)(nil)
+var _ resource.ResourceWithConfigure = (*systemCRLRevokedCertificateResource)(nil)
+var _ resource.ResourceWithImportState = (*systemCRLRevokedCertificateResource)(nil)
+
+const systemCRLRevokedCertificateSingular = "/api/v2/system/crl/revoked_certificate"
+
+type systemCRLRevokedCertificateModel struct {
+	ID         types.String `tfsdk:"id"`
+	ParentID   types.String `tfsdk:"parent_id"`
+	Certref    types.String `tfsdk:"certref"`
+	Serial     types.String `tfsdk:"serial"`
+	Reason     types.Int64  `tfsdk:"reason"`
+	RevokeTime types.Int64  `tfsdk:"revoke_time"`
+	Caref      types.String `tfsdk:"caref"`
+	Descr      types.String `tfsdk:"descr"`
+	Type       types.String `tfsdk:"type"`
+	Crt        types.String `tfsdk:"crt"`
+	Prv        types.String `tfsdk:"prv"`
+}
+
+func NewSystemCRLRevokedCertificateResource() resource.Resource {
+	return &systemCRLRevokedCertificateResource{}
+}
+
+func (r *systemCRLRevokedCertificateResource) Metadata(_ context.Context, _ resource.MetadataRequest, resp *resource.MetadataResponse) {
+	resp.TypeName = "pfsense_system_crl_revoked_certificate"
+}
+func (r *systemCRLRevokedCertificateResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
+	r.client = resourceClient(ctx, req, resp)
+}
+func (r *systemCRLRevokedCertificateResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
+	resp.Schema = schema.Schema{
+		Description: "Revokes a certificate on an internal certificate revocation list. Identified by the parent CRL description and the revoked certificate's `certref`.",
+		Attributes: map[string]schema.Attribute{
+			"id":        computedIDAttribute(),
+			"parent_id": parentIDAttribute("The `descr` of the parent CRL."),
+			"certref":   keyAttribute("The `refid` of the certificate to revoke. Unique within the CRL; immutable after creation."),
+			"serial":    optionalStringAttribute("The serial number of the certificate to be revoked."),
+			"reason":    optionalIntAttribute("The CRL reason for revocation code."),
+			"revoke_time": schema.Int64Attribute{
+				Optional:    true,
+				Computed:    true,
+				Description: "The unix timestamp of when the certificate was revoked. Assigned by the system when not set.",
+			},
+			"caref": optionalStringAttribute("The unique ID of the CA that signed the revoked certificate."),
+			"descr": optionalStringAttribute("A description for this revoked certificate."),
+			"type":  optionalStringAttribute("The type of the certificate to be revoked."),
+			"crt":   optionalStringAttribute("The X509 certificate string."),
+			"prv": schema.StringAttribute{
+				Optional:    true,
+				Sensitive:   true,
+				Description: "The X509 private key string.",
+			},
+		},
+	}
+}
+
+func (r *systemCRLRevokedCertificateResource) key(parent, certref string) string {
+	return parent + "|" + certref
+}
+
+func (r *systemCRLRevokedCertificateResource) identity(m systemCRLRevokedCertificateModel) (parent, certref string) {
+	parent = m.ParentID.ValueString()
+	certref = m.Certref.ValueString()
+	if parent == "" {
+		parent, certref = splitRouteKey(m.ID.ValueString())
+	}
+	return parent, certref
+}
+
+// find locates a revoked certificate within its parent CRL. The revoked
+// certificate model has no plural endpoint, so the parent's `cert` collection is
+// scanned instead and the matching entry's index is used as the object id.
+func (r *systemCRLRevokedCertificateResource) find(ctx context.Context, parent, certref string) (id any, raw map[string]any, found bool, err error) {
+	_, crl, ok, err := findByKey(ctx, r.client, systemCRLPlural, "descr", parent)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	if !ok {
+		return nil, nil, false, nil
+	}
+	for i, cert := range getSliceMap(crl, "cert") {
+		if objectKey(cert, "certref") != certref {
+			continue
+		}
+		if cert["id"] != nil {
+			return cert["id"], cert, true, nil
+		}
+		return i, cert, true, nil
+	}
+	return nil, nil, false, nil
+}
+
+func (r *systemCRLRevokedCertificateResource) payload(m systemCRLRevokedCertificateModel) map[string]any {
+	p := map[string]any{}
+	setString(p, "certref", m.Certref)
+	setString(p, "serial", m.Serial)
+	setInt(p, "reason", m.Reason)
+	setInt(p, "revoke_time", m.RevokeTime)
+	setString(p, "caref", m.Caref)
+	setString(p, "descr", m.Descr)
+	setString(p, "type", m.Type)
+	setString(p, "crt", m.Crt)
+	setString(p, "prv", m.Prv)
+	return p
+}
+
+func (r *systemCRLRevokedCertificateResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
+	var plan systemCRLRevokedCertificateModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	if resp.Diagnostics.HasError() || r.client == nil {
+		return
+	}
+	parent, certref := r.identity(plan)
+	pid, err := resolveParentID(ctx, r.client, systemCRLPlural, "descr", parent)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to resolve parent CRL", err.Error())
+		return
+	}
+	payload := r.payload(plan)
+	payload["parent_id"] = pid
+	raw, err := r.client.Create(ctx, systemCRLRevokedCertificateSingular, payload)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to revoke certificate", err.Error())
+		return
+	}
+	obj, err := decodeObject(raw)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to revoke certificate", err.Error())
+		return
+	}
+	plan.RevokeTime = intValue(getInt(obj, "revoke_time"))
+	plan.ID = types.StringValue(r.key(parent, certref))
+	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+}
+
+func (r *systemCRLRevokedCertificateResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
+	var state systemCRLRevokedCertificateModel
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	if resp.Diagnostics.HasError() || r.client == nil {
+		return
+	}
+	parent, certref := r.identity(state)
+	_, obj, found, err := r.find(ctx, parent, certref)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to read revoked certificate", err.Error())
+		return
+	}
+	if !found {
+		resp.State.RemoveResource(ctx)
+		return
+	}
+	state.ID = types.StringValue(r.key(parent, certref))
+	state.ParentID = types.StringValue(parent)
+	state.Certref = types.StringValue(certref)
+	state.Serial = strValue(getString(obj, "serial"))
+	state.Reason = intValue(getInt(obj, "reason"))
+	state.RevokeTime = intValue(getInt(obj, "revoke_time"))
+	state.Caref = strValue(getString(obj, "caref"))
+	state.Descr = strValue(getString(obj, "descr"))
+	state.Type = strValue(getString(obj, "type"))
+	state.Crt = strValue(getString(obj, "crt"))
+	state.Prv = strValue(getString(obj, "prv"))
+	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
+}
+
+func (r *systemCRLRevokedCertificateResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	var plan systemCRLRevokedCertificateModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	if resp.Diagnostics.HasError() || r.client == nil {
+		return
+	}
+	parent, certref := r.identity(plan)
+	pid, err := resolveParentID(ctx, r.client, systemCRLPlural, "descr", parent)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to resolve parent CRL", err.Error())
+		return
+	}
+	id, _, found, err := r.find(ctx, parent, certref)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to update revoked certificate", err.Error())
+		return
+	}
+	if !found {
+		resp.Diagnostics.AddError("revoked certificate not found", "revoked certificate "+certref+" no longer exists")
+		return
+	}
+	payload := r.payload(plan)
+	payload["id"] = id
+	payload["parent_id"] = pid
+	raw, err := r.client.Update(ctx, systemCRLRevokedCertificateSingular, payload)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to update revoked certificate", err.Error())
+		return
+	}
+	obj, err := decodeObject(raw)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to update revoked certificate", err.Error())
+		return
+	}
+	plan.RevokeTime = intValue(getInt(obj, "revoke_time"))
+	plan.ID = types.StringValue(r.key(parent, certref))
+	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+}
+
+func (r *systemCRLRevokedCertificateResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
+	var state systemCRLRevokedCertificateModel
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	if resp.Diagnostics.HasError() || r.client == nil {
+		return
+	}
+	parent, certref := r.identity(state)
+	pid, err := resolveParentID(ctx, r.client, systemCRLPlural, "descr", parent)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to resolve parent CRL", err.Error())
+		return
+	}
+	id, _, found, err := r.find(ctx, parent, certref)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to delete revoked certificate", err.Error())
+		return
+	}
+	if !found {
+		return
+	}
+	q := client.Query{}.Set("parent_id", formatID(pid)).Set("id", formatID(id))
+	if err := r.client.Delete(ctx, systemCRLRevokedCertificateSingular, q); err != nil {
+		resp.Diagnostics.AddError("failed to delete revoked certificate", err.Error())
+	}
+}
+
+func (r *systemCRLRevokedCertificateResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
+}
+
+// ---------------------------------------------------------------------------
+// pfsense_system_package
+// Key: name. The package endpoint has no PATCH method: only install (POST) and
+// uninstall (DELETE) mutate the system, so Update is a read-only refresh of the
+// package's computed attributes.
+// ---------------------------------------------------------------------------
+
+type systemPackageResource struct{ client *client.Client }
+
+var _ resource.Resource = (*systemPackageResource)(nil)
+var _ resource.ResourceWithConfigure = (*systemPackageResource)(nil)
+var _ resource.ResourceWithImportState = (*systemPackageResource)(nil)
+
+const (
+	systemPackagePlural   = "/api/v2/system/packages"
+	systemPackageSingular = "/api/v2/system/package"
+)
+
+type systemPackageModel struct {
+	ID               types.String `tfsdk:"id"`
+	Name             types.String `tfsdk:"name"`
+	Shortname        types.String `tfsdk:"shortname"`
+	Descr            types.String `tfsdk:"descr"`
+	InstalledVersion types.String `tfsdk:"installed_version"`
+	LatestVersion    types.String `tfsdk:"latest_version"`
+	UpdateAvailable  types.Bool   `tfsdk:"update_available"`
+}
+
+func NewSystemPackageResource() resource.Resource { return &systemPackageResource{} }
+
+func (r *systemPackageResource) Metadata(_ context.Context, _ resource.MetadataRequest, resp *resource.MetadataResponse) {
+	resp.TypeName = "pfsense_system_package"
+}
+func (r *systemPackageResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
+	r.client = resourceClient(ctx, req, resp)
+}
+func (r *systemPackageResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
+	resp.Schema = schema.Schema{
+		Description: "Installs a pfSense package. Identified by its `name` (e.g. `pfSense-pkg-WireGuard`). Packages cannot be modified in place; the resource only installs and uninstalls them.",
+		Attributes: map[string]schema.Attribute{
+			"id":                computedIDAttribute(),
+			"name":              keyAttribute("The name of the pfSense package to install. Immutable after creation."),
+			"shortname":         computedStringAttribute("The package's shortname."),
+			"descr":             computedStringAttribute("The package's description."),
+			"installed_version": computedStringAttribute("The version of the package currently installed."),
+			"latest_version":    computedStringAttribute("The latest version available for this package."),
+			"update_available":  computedBoolAttribute("Whether the installed package has an update available."),
+		},
+	}
+}
+
+// refresh populates the package's computed attributes from a raw API object.
+func (r *systemPackageResource) refresh(obj map[string]any, m *systemPackageModel) {
+	m.Shortname = strValue(getString(obj, "shortname"))
+	m.Descr = strValue(getString(obj, "descr"))
+	m.InstalledVersion = strValue(getString(obj, "installed_version"))
+	m.LatestVersion = strValue(getString(obj, "latest_version"))
+	m.UpdateAvailable = boolValue(getBool(obj, "update_available"))
+}
+
+func (r *systemPackageResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
+	var plan systemPackageModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	if resp.Diagnostics.HasError() || r.client == nil {
+		return
+	}
+	payload := map[string]any{}
+	setString(payload, "name", plan.Name)
+	raw, err := r.client.Create(ctx, systemPackageSingular, payload)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to install package", err.Error())
+		return
+	}
+	obj, err := decodeObject(raw)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to install package", err.Error())
+		return
+	}
+	r.refresh(obj, &plan)
+	plan.ID = types.StringValue(plan.Name.ValueString())
+	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+}
+
+func (r *systemPackageResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
+	var state systemPackageModel
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	if resp.Diagnostics.HasError() || r.client == nil {
+		return
+	}
+	name := state.Name.ValueString()
+	if name == "" {
+		name = state.ID.ValueString()
+	}
+	_, obj, found, err := findByKey(ctx, r.client, systemPackagePlural, "name", name)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to read package", err.Error())
+		return
+	}
+	if !found {
+		resp.State.RemoveResource(ctx)
+		return
+	}
+	state.ID = types.StringValue(name)
+	state.Name = types.StringValue(name)
+	r.refresh(obj, &state)
+	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
+}
+
+// Update refreshes the package's computed attributes. The package endpoint has
+// no PATCH method and `name` requires replacement, so there is nothing to send.
+func (r *systemPackageResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	var plan systemPackageModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	if resp.Diagnostics.HasError() || r.client == nil {
+		return
+	}
+	name := plan.Name.ValueString()
+	if name == "" {
+		name = plan.ID.ValueString()
+	}
+	_, obj, found, err := findByKey(ctx, r.client, systemPackagePlural, "name", name)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to update package", err.Error())
+		return
+	}
+	if !found {
+		resp.Diagnostics.AddError("package not found", "package "+name+" is no longer installed")
+		return
+	}
+	r.refresh(obj, &plan)
+	plan.ID = types.StringValue(name)
+	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+}
+
+func (r *systemPackageResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
+	var state systemPackageModel
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	if resp.Diagnostics.HasError() || r.client == nil {
+		return
+	}
+	name := state.Name.ValueString()
+	if name == "" {
+		name = state.ID.ValueString()
+	}
+	id, _, found, err := findByKey(ctx, r.client, systemPackagePlural, "name", name)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to uninstall package", err.Error())
+		return
+	}
+	if !found {
+		return
+	}
+	if err := r.client.Delete(ctx, systemPackageSingular, client.Query{}.Set("id", formatID(id))); err != nil {
+		resp.Diagnostics.AddError("failed to uninstall package", err.Error())
+	}
+}
+
+func (r *systemPackageResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
+}
+
+// ---------------------------------------------------------------------------
+// pfsense_user_auth_server
+// Key: name. `name` is not editable, so it is only sent on create and changing
+// it replaces the resource.
+// ---------------------------------------------------------------------------
+
+type userAuthServerResource struct{ client *client.Client }
+
+var _ resource.Resource = (*userAuthServerResource)(nil)
+var _ resource.ResourceWithConfigure = (*userAuthServerResource)(nil)
+var _ resource.ResourceWithImportState = (*userAuthServerResource)(nil)
+
+const (
+	userAuthServerPlural   = "/api/v2/user/auth_servers"
+	userAuthServerSingular = "/api/v2/user/auth_server"
+)
+
+type userAuthServerModel struct {
+	ID                       types.String `tfsdk:"id"`
+	Refid                    types.String `tfsdk:"refid"`
+	Type                     types.String `tfsdk:"type"`
+	Name                     types.String `tfsdk:"name"`
+	Host                     types.String `tfsdk:"host"`
+	LDAPPort                 types.String `tfsdk:"ldap_port"`
+	LDAPURLType              types.String `tfsdk:"ldap_urltype"`
+	LDAPProtVer              types.Int64  `tfsdk:"ldap_protver"`
+	LDAPTimeout              types.Int64  `tfsdk:"ldap_timeout"`
+	LDAPCaref                types.String `tfsdk:"ldap_caref"`
+	LDAPScope                types.String `tfsdk:"ldap_scope"`
+	LDAPBasedn               types.String `tfsdk:"ldap_basedn"`
+	LDAPAuthcn               types.String `tfsdk:"ldap_authcn"`
+	LDAPExtendedEnabled      types.Bool   `tfsdk:"ldap_extended_enabled"`
+	LDAPExtendedQuery        types.String `tfsdk:"ldap_extended_query"`
+	LDAPBinddn               types.String `tfsdk:"ldap_binddn"`
+	LDAPBindpw               types.String `tfsdk:"ldap_bindpw"`
+	LDAPAttrUser             types.String `tfsdk:"ldap_attr_user"`
+	LDAPAttrGroup            types.String `tfsdk:"ldap_attr_group"`
+	LDAPAttrMember           types.String `tfsdk:"ldap_attr_member"`
+	LDAPRFC2307              types.Bool   `tfsdk:"ldap_rfc2307"`
+	LDAPRFC2307UserDN        types.Bool   `tfsdk:"ldap_rfc2307_userdn"`
+	LDAPAttrGroupobj         types.String `tfsdk:"ldap_attr_groupobj"`
+	LDAPPamGroupdn           types.String `tfsdk:"ldap_pam_groupdn"`
+	LDAPUTF8                 types.Bool   `tfsdk:"ldap_utf8"`
+	LDAPNostripAt            types.Bool   `tfsdk:"ldap_nostrip_at"`
+	LDAPAllowUnauthenticated types.Bool   `tfsdk:"ldap_allow_unauthenticated"`
+	RADIUSSecret             types.String `tfsdk:"radius_secret"`
+	RADIUSAuthPort           types.String `tfsdk:"radius_auth_port"`
+	RADIUSAcctPort           types.String `tfsdk:"radius_acct_port"`
+	RADIUSProtocol           types.String `tfsdk:"radius_protocol"`
+	RADIUSTimeout            types.Int64  `tfsdk:"radius_timeout"`
+	RADIUSNasipAttribute     types.String `tfsdk:"radius_nasip_attribute"`
+}
+
+func NewUserAuthServerResource() resource.Resource { return &userAuthServerResource{} }
+
+func (r *userAuthServerResource) Metadata(_ context.Context, _ resource.MetadataRequest, resp *resource.MetadataResponse) {
+	resp.TypeName = "pfsense_user_auth_server"
+}
+func (r *userAuthServerResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
+	r.client = resourceClient(ctx, req, resp)
+}
+func (r *userAuthServerResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
+	resp.Schema = schema.Schema{
+		Description: "Manages an LDAP or RADIUS authentication server. Identified by its `name`.",
+		Attributes: map[string]schema.Attribute{
+			"id":                         computedIDAttribute(),
+			"refid":                      computedStringAttribute("The unique reference ID for this authentication server, assigned by the system."),
+			"type":                       requiredEnumAttribute("The type of this authentication server.", "ldap", "radius"),
+			"name":                       keyAttribute("The descriptive name for this authentication server. Unique; immutable after creation."),
+			"host":                       requiredStringAttribute("The remote IP address or hostname of the authentication server."),
+			"ldap_port":                  optionalStringAttribute("The LDAP port to connect to on this authentication server (`type` must be `ldap`)."),
+			"ldap_urltype":               enumAttribute("The encryption mode used when connecting to this LDAP server.", "Standard TCP", "STARTTLS Encrypt", "SSL/TLS Encrypted"),
+			"ldap_protver":               optionalIntAttribute("The LDAP protocol version to use (2 or 3)."),
+			"ldap_timeout":               optionalIntAttribute("The timeout (in seconds) for connections to the LDAP server."),
+			"ldap_caref":                 optionalStringAttribute("The certificate authority used to validate the LDAP server certificate."),
+			"ldap_scope":                 enumAttribute("The LDAP search scope: `one` for a single level or `subtree` for the entire subtree.", "one", "subtree"),
+			"ldap_basedn":                optionalStringAttribute("The root for LDAP searches on this authentication server."),
+			"ldap_authcn":                optionalStringAttribute("The LDAP authentication container."),
+			"ldap_extended_enabled":      optionalBoolAttribute("Enable LDAP extended queries."),
+			"ldap_extended_query":        optionalStringAttribute("The extended LDAP query to make during LDAP searches."),
+			"ldap_binddn":                optionalStringAttribute("The DN to use when binding to this authentication server. Leave unset to bind anonymously."),
+			"ldap_bindpw":                sensitiveStringAttribute("The password to use when binding to this authentication server."),
+			"ldap_attr_user":             optionalStringAttribute("The LDAP user attribute."),
+			"ldap_attr_group":            optionalStringAttribute("The LDAP group attribute."),
+			"ldap_attr_member":           optionalStringAttribute("The LDAP member attribute."),
+			"ldap_rfc2307":               optionalBoolAttribute("Enable RFC2307 LDAP options."),
+			"ldap_rfc2307_userdn":        optionalBoolAttribute("Use DNs for username searches."),
+			"ldap_attr_groupobj":         optionalStringAttribute("The group object class for groups in RFC2307 mode."),
+			"ldap_pam_groupdn":           optionalStringAttribute("The group DN to use for shell authentication."),
+			"ldap_utf8":                  optionalBoolAttribute("UTF-8 encode LDAP parameters before sending them to this authentication server."),
+			"ldap_nostrip_at":            optionalBoolAttribute("Do not strip away parts of the username after the @ symbol."),
+			"ldap_allow_unauthenticated": optionalBoolAttribute("Allow unauthenticated binding (binding with an existing login but an empty password)."),
+			"radius_secret":              sensitiveStringAttribute("The shared secret used when authenticating to this RADIUS server."),
+			"radius_auth_port":           optionalStringAttribute("The port used by RADIUS for authentication. Leave unset to disable authentication services."),
+			"radius_acct_port":           optionalStringAttribute("The port used by RADIUS for accounting. Leave unset to disable accounting services."),
+			"radius_protocol":            enumAttribute("The RADIUS protocol to use when authenticating.", "MSCHAPv2", "MSCHAPv1", "CHAP_MD5", "PAP"),
+			"radius_timeout":             optionalIntAttribute("The timeout (in seconds) for connections to this RADIUS server."),
+			"radius_nasip_attribute":     optionalStringAttribute("The interface whose IP is used as the `NAS-IP-Address` attribute during RADIUS Access-Requests."),
+		},
+	}
+}
+
+// payload builds the request body. `name` is not editable, so it is only
+// included on create (includeName).
+func (r *userAuthServerResource) payload(m userAuthServerModel, includeName bool) map[string]any {
+	p := map[string]any{}
+	setString(p, "type", m.Type)
+	if includeName {
+		setString(p, "name", m.Name)
+	}
+	setString(p, "host", m.Host)
+	setString(p, "ldap_port", m.LDAPPort)
+	setString(p, "ldap_urltype", m.LDAPURLType)
+	setInt(p, "ldap_protver", m.LDAPProtVer)
+	setInt(p, "ldap_timeout", m.LDAPTimeout)
+	setString(p, "ldap_caref", m.LDAPCaref)
+	setString(p, "ldap_scope", m.LDAPScope)
+	setString(p, "ldap_basedn", m.LDAPBasedn)
+	setString(p, "ldap_authcn", m.LDAPAuthcn)
+	setBool(p, "ldap_extended_enabled", m.LDAPExtendedEnabled)
+	setString(p, "ldap_extended_query", m.LDAPExtendedQuery)
+	setString(p, "ldap_binddn", m.LDAPBinddn)
+	setString(p, "ldap_bindpw", m.LDAPBindpw)
+	setString(p, "ldap_attr_user", m.LDAPAttrUser)
+	setString(p, "ldap_attr_group", m.LDAPAttrGroup)
+	setString(p, "ldap_attr_member", m.LDAPAttrMember)
+	setBool(p, "ldap_rfc2307", m.LDAPRFC2307)
+	setBool(p, "ldap_rfc2307_userdn", m.LDAPRFC2307UserDN)
+	setString(p, "ldap_attr_groupobj", m.LDAPAttrGroupobj)
+	setString(p, "ldap_pam_groupdn", m.LDAPPamGroupdn)
+	setBool(p, "ldap_utf8", m.LDAPUTF8)
+	setBool(p, "ldap_nostrip_at", m.LDAPNostripAt)
+	setBool(p, "ldap_allow_unauthenticated", m.LDAPAllowUnauthenticated)
+	setString(p, "radius_secret", m.RADIUSSecret)
+	setString(p, "radius_auth_port", m.RADIUSAuthPort)
+	setString(p, "radius_acct_port", m.RADIUSAcctPort)
+	setString(p, "radius_protocol", m.RADIUSProtocol)
+	setInt(p, "radius_timeout", m.RADIUSTimeout)
+	setString(p, "radius_nasip_attribute", m.RADIUSNasipAttribute)
+	return p
+}
+
+func (r *userAuthServerResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
+	var plan userAuthServerModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	if resp.Diagnostics.HasError() || r.client == nil {
+		return
+	}
+	raw, err := r.client.Create(ctx, userAuthServerSingular, r.payload(plan, true))
+	if err != nil {
+		resp.Diagnostics.AddError("failed to create authentication server", err.Error())
+		return
+	}
+	obj, err := decodeObject(raw)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to create authentication server", err.Error())
+		return
+	}
+	plan.Refid = strValue(getString(obj, "refid"))
+	plan.ID = types.StringValue(plan.Name.ValueString())
+	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+}
+
+func (r *userAuthServerResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
+	var state userAuthServerModel
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	if resp.Diagnostics.HasError() || r.client == nil {
+		return
+	}
+	name := state.Name.ValueString()
+	if name == "" {
+		name = state.ID.ValueString()
+	}
+	_, obj, found, err := findByKey(ctx, r.client, userAuthServerPlural, "name", name)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to read authentication server", err.Error())
+		return
+	}
+	if !found {
+		resp.State.RemoveResource(ctx)
+		return
+	}
+	state.ID = types.StringValue(name)
+	state.Refid = strValue(getString(obj, "refid"))
+	state.Type = strValue(getString(obj, "type"))
+	state.Name = types.StringValue(name)
+	state.Host = strValue(getString(obj, "host"))
+	state.LDAPPort = strValue(getString(obj, "ldap_port"))
+	state.LDAPURLType = strValue(getString(obj, "ldap_urltype"))
+	state.LDAPProtVer = intValue(getInt(obj, "ldap_protver"))
+	state.LDAPTimeout = intValue(getInt(obj, "ldap_timeout"))
+	state.LDAPCaref = strValue(getString(obj, "ldap_caref"))
+	state.LDAPScope = strValue(getString(obj, "ldap_scope"))
+	state.LDAPBasedn = strValue(getString(obj, "ldap_basedn"))
+	state.LDAPAuthcn = strValue(getString(obj, "ldap_authcn"))
+	state.LDAPExtendedEnabled = boolValue(getBool(obj, "ldap_extended_enabled"))
+	state.LDAPExtendedQuery = strValue(getString(obj, "ldap_extended_query"))
+	state.LDAPBinddn = strValue(getString(obj, "ldap_binddn"))
+	state.LDAPBindpw = strValue(getString(obj, "ldap_bindpw"))
+	state.LDAPAttrUser = strValue(getString(obj, "ldap_attr_user"))
+	state.LDAPAttrGroup = strValue(getString(obj, "ldap_attr_group"))
+	state.LDAPAttrMember = strValue(getString(obj, "ldap_attr_member"))
+	state.LDAPRFC2307 = boolValue(getBool(obj, "ldap_rfc2307"))
+	state.LDAPRFC2307UserDN = boolValue(getBool(obj, "ldap_rfc2307_userdn"))
+	state.LDAPAttrGroupobj = strValue(getString(obj, "ldap_attr_groupobj"))
+	state.LDAPPamGroupdn = strValue(getString(obj, "ldap_pam_groupdn"))
+	state.LDAPUTF8 = boolValue(getBool(obj, "ldap_utf8"))
+	state.LDAPNostripAt = boolValue(getBool(obj, "ldap_nostrip_at"))
+	state.LDAPAllowUnauthenticated = boolValue(getBool(obj, "ldap_allow_unauthenticated"))
+	state.RADIUSSecret = strValue(getString(obj, "radius_secret"))
+	state.RADIUSAuthPort = strValue(getString(obj, "radius_auth_port"))
+	state.RADIUSAcctPort = strValue(getString(obj, "radius_acct_port"))
+	state.RADIUSProtocol = strValue(getString(obj, "radius_protocol"))
+	state.RADIUSTimeout = intValue(getInt(obj, "radius_timeout"))
+	state.RADIUSNasipAttribute = strValue(getString(obj, "radius_nasip_attribute"))
+	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
+}
+
+func (r *userAuthServerResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	var plan userAuthServerModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	if resp.Diagnostics.HasError() || r.client == nil {
+		return
+	}
+	name := plan.Name.ValueString()
+	if name == "" {
+		name = plan.ID.ValueString()
+	}
+	id, _, found, err := findByKey(ctx, r.client, userAuthServerPlural, "name", name)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to update authentication server", err.Error())
+		return
+	}
+	if !found {
+		resp.Diagnostics.AddError("authentication server not found", "authentication server "+name+" no longer exists")
+		return
+	}
+	payload := r.payload(plan, false)
+	payload["id"] = id
+	if _, err := r.client.Update(ctx, userAuthServerSingular, payload); err != nil {
+		resp.Diagnostics.AddError("failed to update authentication server", err.Error())
+		return
+	}
+	plan.ID = types.StringValue(name)
+	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+}
+
+func (r *userAuthServerResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
+	var state userAuthServerModel
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	if resp.Diagnostics.HasError() || r.client == nil {
+		return
+	}
+	name := state.Name.ValueString()
+	if name == "" {
+		name = state.ID.ValueString()
+	}
+	id, _, found, err := findByKey(ctx, r.client, userAuthServerPlural, "name", name)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to delete authentication server", err.Error())
+		return
+	}
+	if !found {
+		return
+	}
+	if err := r.client.Delete(ctx, userAuthServerSingular, client.Query{}.Set("id", formatID(id))); err != nil {
+		resp.Diagnostics.AddError("failed to delete authentication server", err.Error())
+	}
+}
+
+func (r *userAuthServerResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
+}
+
+// ---------------------------------------------------------------------------
+// pfsense_system_restapi_access_list_entry
+// Key: network. The entry model has no plural endpoint of its own; the access
+// list endpoint returns the full array of entries, which is filtered by network.
+// ---------------------------------------------------------------------------
+
+type restapiAccessListEntryResource struct{ client *client.Client }
+
+var _ resource.Resource = (*restapiAccessListEntryResource)(nil)
+var _ resource.ResourceWithConfigure = (*restapiAccessListEntryResource)(nil)
+var _ resource.ResourceWithImportState = (*restapiAccessListEntryResource)(nil)
+
+const (
+	restapiAccessListPlural        = "/api/v2/system/restapi/access_list"
+	restapiAccessListEntrySingular = "/api/v2/system/restapi/access_list/entry"
+)
+
+type restapiAccessListEntryModel struct {
+	ID      types.String `tfsdk:"id"`
+	Type    types.String `tfsdk:"type"`
+	Weight  types.Int64  `tfsdk:"weight"`
+	Network types.String `tfsdk:"network"`
+	Users   types.List   `tfsdk:"users"`
+	Sched   types.String `tfsdk:"sched"`
+	Descr   types.String `tfsdk:"descr"`
+}
+
+func NewSystemRESTAPIAccessListEntryResource() resource.Resource {
+	return &restapiAccessListEntryResource{}
+}
+
+func (r *restapiAccessListEntryResource) Metadata(_ context.Context, _ resource.MetadataRequest, resp *resource.MetadataResponse) {
+	resp.TypeName = "pfsense_system_restapi_access_list_entry"
+}
+func (r *restapiAccessListEntryResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
+	r.client = resourceClient(ctx, req, resp)
+}
+func (r *restapiAccessListEntryResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
+	resp.Schema = schema.Schema{
+		Description: "Manages a REST API access list entry. Identified by its `network`.",
+		Attributes: map[string]schema.Attribute{
+			"id":      computedIDAttribute(),
+			"type":    enumAttribute("The type of access this entry provides: `allow` permits access from the network, `deny` blocks it.", "allow", "deny"),
+			"weight":  optionalIntAttribute("The weight of this entry. Entries with lower weights are evaluated first."),
+			"network": keyAttribute("The network (in CIDR notation) this entry applies to. Unique; immutable after creation."),
+			"users":   optionalStringListAttribute("The users this entry applies to. Leave unset to apply the entry to all users."),
+			"sched":   optionalStringAttribute("The firewall schedule this entry will use. The entry is only active during the schedule's times."),
+			"descr":   optionalStringAttribute("A description of this access list entry."),
+		},
+	}
+}
+
+func (r *restapiAccessListEntryResource) find(ctx context.Context, network string) (any, map[string]any, bool, error) {
+	return findByKeys(ctx, r.client, restapiAccessListPlural, map[string]string{"network": network})
+}
+
+func (r *restapiAccessListEntryResource) payload(m restapiAccessListEntryModel) map[string]any {
+	p := map[string]any{}
+	setString(p, "type", m.Type)
+	setInt(p, "weight", m.Weight)
+	setString(p, "network", m.Network)
+	setStringList(p, "users", m.Users)
+	setString(p, "sched", m.Sched)
+	setString(p, "descr", m.Descr)
+	return p
+}
+
+func (r *restapiAccessListEntryResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
+	var plan restapiAccessListEntryModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	if resp.Diagnostics.HasError() || r.client == nil {
+		return
+	}
+	if _, err := r.client.Create(ctx, restapiAccessListEntrySingular, r.payload(plan)); err != nil {
+		resp.Diagnostics.AddError("failed to create REST API access list entry", err.Error())
+		return
+	}
+	plan.ID = types.StringValue(plan.Network.ValueString())
+	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+}
+
+func (r *restapiAccessListEntryResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
+	var state restapiAccessListEntryModel
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	if resp.Diagnostics.HasError() || r.client == nil {
+		return
+	}
+	network := state.Network.ValueString()
+	if network == "" {
+		network = state.ID.ValueString()
+	}
+	_, obj, found, err := r.find(ctx, network)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to read REST API access list entry", err.Error())
+		return
+	}
+	if !found {
+		resp.State.RemoveResource(ctx)
+		return
+	}
+	state.ID = types.StringValue(network)
+	state.Type = strValue(getString(obj, "type"))
+	state.Weight = intValue(getInt(obj, "weight"))
+	state.Network = types.StringValue(network)
+	state.Users = strListValue(ctx, getStringSlice(obj, "users"))
+	state.Sched = strValue(getString(obj, "sched"))
+	state.Descr = strValue(getString(obj, "descr"))
+	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
+}
+
+func (r *restapiAccessListEntryResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	var plan restapiAccessListEntryModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	if resp.Diagnostics.HasError() || r.client == nil {
+		return
+	}
+	network := plan.Network.ValueString()
+	if network == "" {
+		network = plan.ID.ValueString()
+	}
+	id, _, found, err := r.find(ctx, network)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to update REST API access list entry", err.Error())
+		return
+	}
+	if !found {
+		resp.Diagnostics.AddError("REST API access list entry not found", "entry for network "+network+" no longer exists")
+		return
+	}
+	payload := r.payload(plan)
+	payload["id"] = id
+	if _, err := r.client.Update(ctx, restapiAccessListEntrySingular, payload); err != nil {
+		resp.Diagnostics.AddError("failed to update REST API access list entry", err.Error())
+		return
+	}
+	plan.ID = types.StringValue(network)
+	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+}
+
+func (r *restapiAccessListEntryResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
+	var state restapiAccessListEntryModel
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	if resp.Diagnostics.HasError() || r.client == nil {
+		return
+	}
+	network := state.Network.ValueString()
+	if network == "" {
+		network = state.ID.ValueString()
+	}
+	id, _, found, err := r.find(ctx, network)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to delete REST API access list entry", err.Error())
+		return
+	}
+	if !found {
+		return
+	}
+	if err := r.client.Delete(ctx, restapiAccessListEntrySingular, client.Query{}.Set("id", formatID(id))); err != nil {
+		resp.Diagnostics.AddError("failed to delete REST API access list entry", err.Error())
+	}
+}
+
+func (r *restapiAccessListEntryResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
+}
