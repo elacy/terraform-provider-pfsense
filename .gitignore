@@ -1,0 +1,19 @@
+# Build artifacts
+terraform-provider-pfsense
+dist/
+*.test
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+
+# Go
+vendor/
+
+# IDE
+.idea/
+.vscode/
+*.swp
