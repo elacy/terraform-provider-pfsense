@@ -170,6 +170,26 @@ func (p *pfsenseProvider) Resources(_ context.Context) []func() resource.Resourc
 		NewBindZoneResource,
 		NewFreeradiusMACResource,
 		NewFreeradiusUserResource,
+		// VPN: IPsec
+		NewIPsecPhase1Resource,
+		NewIPsecPhase1EncryptionResource,
+		NewIPsecPhase2Resource,
+		NewIPsecPhase2EncryptionResource,
+		// VPN: OpenVPN
+		NewOpenVPNClientResource,
+		NewOpenVPNServerResource,
+		NewOpenVPNCSOResource,
+		// VPN: WireGuard
+		NewWireGuardTunnelResource,
+		NewWireGuardTunnelAddressResource,
+		NewWireGuardPeerResource,
+		NewWireGuardPeerAllowedIPResource,
+		// system extras
+		NewSystemCRLResource,
+		NewSystemCRLRevokedCertificateResource,
+		NewSystemPackageResource,
+		NewUserAuthServerResource,
+		NewSystemRESTAPIAccessListEntryResource,
 	}
 }
 
