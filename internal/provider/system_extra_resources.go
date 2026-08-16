@@ -240,11 +240,7 @@ func (r *systemCRLRevokedCertificateResource) Schema(_ context.Context, _ resour
 			"descr": optionalStringAttribute("A description for this revoked certificate."),
 			"type":  optionalStringAttribute("The type of the certificate to be revoked."),
 			"crt":   optionalStringAttribute("The X509 certificate string."),
-			"prv": schema.StringAttribute{
-				Optional:    true,
-				Sensitive:   true,
-				Description: "The X509 private key string.",
-			},
+			"prv":   sensitiveStringAttribute("The X509 private key string."),
 		},
 	}
 }
@@ -406,7 +402,7 @@ func (r *systemCRLRevokedCertificateResource) Delete(ctx context.Context, req re
 	parent, certref := r.identity(state)
 	pid, err := resolveParentID(ctx, r.client, systemCRLPlural, "descr", parent)
 	if err != nil {
-		resp.Diagnostics.AddError("failed to resolve parent CRL", err.Error())
+		// Parent CRL removed out-of-band: the child is already gone.
 		return
 	}
 	id, _, found, err := r.find(ctx, parent, certref)

@@ -518,7 +518,7 @@ func (r *ipsecPhase1EncryptionResource) Delete(ctx context.Context, req resource
 	parent, algorithm, hash, dhgroup, keylen := r.identity(state)
 	pid, err := resolveParentID(ctx, r.client, ipsecPhase1Plural, "descr", parent)
 	if err != nil {
-		resp.Diagnostics.AddError("failed to resolve parent IPsec phase 1 entry", err.Error())
+		// Parent phase 1 entry removed out-of-band: the child is already gone.
 		return
 	}
 	id, _, found, err := r.find(ctx, pid, algorithm, hash, dhgroup, keylen)
@@ -956,7 +956,7 @@ func (r *ipsecPhase2EncryptionResource) Delete(ctx context.Context, req resource
 	parent, name, keylen := r.identity(state)
 	pid, err := resolveParentID(ctx, r.client, ipsecPhase2Plural, "descr", parent)
 	if err != nil {
-		resp.Diagnostics.AddError("failed to resolve parent IPsec phase 2 entry", err.Error())
+		// Parent phase 2 entry removed out-of-band: the child is already gone.
 		return
 	}
 	id, _, found, err := r.find(ctx, pid, name, keylen)
@@ -1066,7 +1066,7 @@ func (r *openVPNClientResource) Schema(_ context.Context, _ resource.SchemaReque
 			"vpnif":                 computedStringAttribute("The VPN interface name for this OpenVPN client, assigned by the system."),
 			"description":           keyAttribute("The description for this OpenVPN client. Unique; immutable after creation."),
 			"disable":               optionalBoolAttribute("Disable this OpenVPN client."),
-			"mode":                  schema.StringAttribute{Optional: true, Description: "The OpenVPN client mode. Defaults to p2p_tls when unset.", Validators: []validator.String{stringvalidator.OneOf("p2p_tls")}},
+			"mode":                  enumAttribute("The OpenVPN client mode. Defaults to p2p_tls when unset.", "p2p_tls"),
 			"dev_mode":              requiredEnumAttribute("The carrier mode for this OpenVPN client: `tun` (layer 3) or `tap` (layer 2).", "tun", "tap"),
 			"protocol":              requiredEnumAttribute("The protocol used by this OpenVPN client.", "UDP4", "UDP6", "UDP", "TCP4", "TCP6", "TCP"),
 			"interface":             optionalStringAttribute("The interface used by the firewall to originate this OpenVPN client connection."),
@@ -2353,7 +2353,7 @@ func (r *wireGuardTunnelAddressResource) Delete(ctx context.Context, req resourc
 	parent, address := r.identity(state)
 	pid, err := resolveParentID(ctx, r.client, wireGuardTunnelPlural, "name", parent)
 	if err != nil {
-		resp.Diagnostics.AddError("failed to resolve parent WireGuard tunnel", err.Error())
+		// Parent WireGuard tunnel removed out-of-band: the child is already gone.
 		return
 	}
 	id, _, found, err := findByKeyInParent(ctx, r.client, wireGuardTunnelAddressPlural, formatID(pid), "address", address)
@@ -2696,7 +2696,7 @@ func (r *wireGuardPeerAllowedIPResource) Delete(ctx context.Context, req resourc
 	parent, address := r.identity(state)
 	pid, err := resolveParentID(ctx, r.client, wireGuardPeerPlural, "descr", parent)
 	if err != nil {
-		resp.Diagnostics.AddError("failed to resolve parent WireGuard peer", err.Error())
+		// Parent WireGuard peer removed out-of-band: the child is already gone.
 		return
 	}
 	id, _, found, err := findByKeyInParent(ctx, r.client, wireGuardPeerAllowedIPPlural, formatID(pid), "address", address)
