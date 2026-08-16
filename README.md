@@ -9,9 +9,13 @@ release **v2.10.0**) which exposes 200+ endpoints under `/api/v2`.
 
 ## Status
 
-Early development. A working provider with a core set of resources, an internal
-v2 API client, and offline (mock-server) acceptance tests. Live acceptance
-testing against a pfSense VM is the next milestone (pending VM provisioning).
+Code-complete: **62 resources + 4 data sources** covering firewall, NAT,
+interfaces, routing, services (DHCP/DNS/NTP/cron/BIND/FreeRADIUS), system, and
+VPN (IPsec/OpenVPN/WireGuard). Every resource has an acceptance test that runs
+against an in-process mock server (no pfSense required).
+
+Live acceptance testing against a pfSense CE 2.8.1 VM is the final milestone —
+see [`docs/COVERAGE.md`](docs/COVERAGE.md) for the roadmap and current status.
 
 ## Requirements
 
@@ -51,14 +55,14 @@ resource "pfsense_firewall_alias" "webservers" {
 }
 
 resource "pfsense_firewall_rule" "allow_https" {
-  descr      = "allow-https"
-  type       = "pass"
-  interface  = ["lan"]
-  ipprotocol = "inet"
-  protocol   = "tcp"
-  source     = "any"
+  descr            = "allow-https"
+  type             = "pass"
+  interface        = ["lan"]
+  ipprotocol       = "inet"
+  protocol         = "tcp"
+  source           = "any"
+  destination      = "webservers"
   destination_port = "443"
-  destination     = "webservers"
 }
 
 resource "pfsense_system_user" "deploy" {
@@ -70,27 +74,87 @@ resource "pfsense_system_user" "deploy" {
 
 See [`examples/`](examples/) for more.
 
-## Implemented resources
+## Resources (62)
+
+Firewall:
 
 - `pfsense_firewall_alias`
 - `pfsense_firewall_rule`
 - `pfsense_firewall_schedule`
+- `pfsense_firewall_nat_port_forward`
+- `pfsense_firewall_nat_one_to_one`
+- `pfsense_firewall_nat_outbound`
+- `pfsense_firewall_virtual_ip`
+- `pfsense_firewall_traffic_shaper`
+- `pfsense_firewall_traffic_shaper_limiter`
+- `pfsense_firewall_traffic_shaper_queue`
+- `pfsense_firewall_traffic_shaper_limiter_queue`
+
+Interfaces:
+
+- `pfsense_network_interface`
 - `pfsense_interface_vlan`
+- `pfsense_interface_bridge`
+- `pfsense_interface_gre`
+- `pfsense_interface_lagg`
+- `pfsense_interface_group`
+
+Routing:
+
 - `pfsense_routing_gateway`
 - `pfsense_routing_gateway_group`
 - `pfsense_routing_static_route`
+
+Services (DHCP / DNS / NTP / misc):
+
 - `pfsense_services_dhcp_server`
+- `pfsense_services_dhcp_static_mapping`
+- `pfsense_services_dhcp_address_pool`
+- `pfsense_services_dhcp_custom_option`
 - `pfsense_services_dns_resolver_host_override`
-- `pfsense_services_cron_job`
+- `pfsense_services_dns_resolver_host_override_alias`
+- `pfsense_services_dns_resolver_domain_override`
+- `pfsense_services_dns_forwarder_host_override`
+- `pfsense_services_dns_forwarder_host_override_alias`
 - `pfsense_services_ntp_settings`
+- `pfsense_services_ntp_time_server`
+- `pfsense_services_cron_job`
+- `pfsense_services_service_watchdog`
+- `pfsense_services_bind_access_list`
+- `pfsense_services_bind_view`
+- `pfsense_services_bind_zone`
+- `pfsense_services_freeradius_mac`
+- `pfsense_services_freeradius_user`
+
+System:
+
 - `pfsense_system_user`
 - `pfsense_system_group`
 - `pfsense_system_ca`
 - `pfsense_system_certificate`
+- `pfsense_system_crl`
+- `pfsense_system_crl_revoked_certificate`
 - `pfsense_system_tunable`
 - `pfsense_system_hostname`
 - `pfsense_system_dns`
 - `pfsense_system_timezone`
+- `pfsense_system_package`
+- `pfsense_user_auth_server`
+- `pfsense_system_restapi_access_list_entry`
+
+VPN:
+
+- `pfsense_ipsec_phase1`
+- `pfsense_ipsec_phase1_encryption`
+- `pfsense_ipsec_phase2`
+- `pfsense_ipsec_phase2_encryption`
+- `pfsense_openvpn_client`
+- `pfsense_openvpn_server`
+- `pfsense_openvpn_cso`
+- `pfsense_wireguard_tunnel`
+- `pfsense_wireguard_tunnel_address`
+- `pfsense_wireguard_peer`
+- `pfsense_wireguard_peer_allowed_ip`
 
 ## Data sources
 
@@ -135,12 +199,5 @@ Live acceptance testing against a real pfSense VM is planned; see
 
 ## License
 
-License is to be decided as part of the repository strategy (see the open
-questions below). The upstream `pfSense-pkg-RESTAPI` is Apache-2.0.
-
-## Open questions
-
-1. **Repository**: rewrite `elacy/terraform-provider-pfsense` in place (major
-   version bump) vs. a new repository.
-2. **VM**: go-ahead to provision a pfSense CE 2.8.1 VM on the TrueNAS NAS for
-   live acceptance testing (isolated network to avoid rogue DHCP).
+The upstream `pfSense-pkg-RESTAPI` is Apache-2.0. This provider's license is to
+be finalized before the first public release.
