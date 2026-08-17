@@ -440,10 +440,17 @@ func (r *interfaceBridgeResource) Create(ctx context.Context, req resource.Creat
 	setStringList(payload, "members", plan.Members)
 	setString(payload, "descr", plan.Descr)
 	applyNow(payload)
-	if _, err := r.client.Create(ctx, interfaceBridgeSingular, payload); err != nil {
+	raw, err := r.client.Create(ctx, interfaceBridgeSingular, payload)
+	if err != nil {
 		resp.Diagnostics.AddError("failed to create interface bridge", err.Error())
 		return
 	}
+	obj, err := decodeObject(raw)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to create interface bridge", err.Error())
+		return
+	}
+	plan.Bridgeif = strValue(getString(obj, "bridgeif"))
 	plan.ID = plan.Descr
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
@@ -497,10 +504,17 @@ func (r *interfaceBridgeResource) Update(ctx context.Context, req resource.Updat
 	setStringList(payload, "members", plan.Members)
 	setString(payload, "descr", plan.Descr)
 	applyNow(payload)
-	if _, err := r.client.Update(ctx, interfaceBridgeSingular, payload); err != nil {
+	raw, err := r.client.Update(ctx, interfaceBridgeSingular, payload)
+	if err != nil {
 		resp.Diagnostics.AddError("failed to update interface bridge", err.Error())
 		return
 	}
+	obj, err := decodeObject(raw)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to update interface bridge", err.Error())
+		return
+	}
+	plan.Bridgeif = strValue(getString(obj, "bridgeif"))
 	plan.ID = types.StringValue(descr)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
@@ -614,10 +628,17 @@ func (r *interfaceGREResource) Create(ctx context.Context, req resource.CreateRe
 	setString(payload, "tunnel_remote_addr6", plan.TunnelRemoteAddr6)
 	setInt(payload, "tunnel_remote_net6", plan.TunnelRemoteNet6)
 	applyNow(payload)
-	if _, err := r.client.Create(ctx, interfaceGRESingular, payload); err != nil {
+	raw, err := r.client.Create(ctx, interfaceGRESingular, payload)
+	if err != nil {
 		resp.Diagnostics.AddError("failed to create GRE interface", err.Error())
 		return
 	}
+	obj, err := decodeObject(raw)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to create GRE interface", err.Error())
+		return
+	}
+	plan.Greif = strValue(getString(obj, "greif"))
 	plan.ID = plan.If
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
@@ -687,10 +708,17 @@ func (r *interfaceGREResource) Update(ctx context.Context, req resource.UpdateRe
 	setString(payload, "tunnel_remote_addr6", plan.TunnelRemoteAddr6)
 	setInt(payload, "tunnel_remote_net6", plan.TunnelRemoteNet6)
 	applyNow(payload)
-	if _, err := r.client.Update(ctx, interfaceGRESingular, payload); err != nil {
+	raw, err := r.client.Update(ctx, interfaceGRESingular, payload)
+	if err != nil {
 		resp.Diagnostics.AddError("failed to update GRE interface", err.Error())
 		return
 	}
+	obj, err := decodeObject(raw)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to update GRE interface", err.Error())
+		return
+	}
+	plan.Greif = strValue(getString(obj, "greif"))
 	plan.ID = types.StringValue(iface)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
@@ -802,10 +830,17 @@ func (r *interfaceLAGGResource) Create(ctx context.Context, req resource.CreateR
 	setString(payload, "lagghash", plan.Lagghash)
 	setString(payload, "failovermaster", plan.Failovermaster)
 	applyNow(payload)
-	if _, err := r.client.Create(ctx, interfaceLAGGSingular, payload); err != nil {
+	raw, err := r.client.Create(ctx, interfaceLAGGSingular, payload)
+	if err != nil {
 		resp.Diagnostics.AddError("failed to create LAGG interface", err.Error())
 		return
 	}
+	obj, err := decodeObject(raw)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to create LAGG interface", err.Error())
+		return
+	}
+	plan.Laggif = strValue(getString(obj, "laggif"))
 	plan.ID = plan.Descr
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
@@ -867,10 +902,17 @@ func (r *interfaceLAGGResource) Update(ctx context.Context, req resource.UpdateR
 	setString(payload, "lagghash", plan.Lagghash)
 	setString(payload, "failovermaster", plan.Failovermaster)
 	applyNow(payload)
-	if _, err := r.client.Update(ctx, interfaceLAGGSingular, payload); err != nil {
+	raw, err := r.client.Update(ctx, interfaceLAGGSingular, payload)
+	if err != nil {
 		resp.Diagnostics.AddError("failed to update LAGG interface", err.Error())
 		return
 	}
+	obj, err := decodeObject(raw)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to update LAGG interface", err.Error())
+		return
+	}
+	plan.Laggif = strValue(getString(obj, "laggif"))
 	plan.ID = types.StringValue(descr)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }

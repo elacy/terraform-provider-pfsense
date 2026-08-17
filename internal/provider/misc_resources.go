@@ -8,6 +8,9 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
@@ -230,9 +233,23 @@ func (r *interfaceVLANResource) Schema(_ context.Context, _ resource.SchemaReque
 	resp.Schema = schema.Schema{
 		Description: "Manages a VLAN interface. Identified by parent interface and VLAN tag.",
 		Attributes: map[string]schema.Attribute{
-			"id":     computedIDAttribute(),
-			"if":     requiredStringAttribute("Parent interface for the VLAN."),
-			"tag":    schema.Int64Attribute{Required: true, Description: "VLAN tag (1-4094)."},
+			"id": computedIDAttribute(),
+			// `if` and `tag` form the natural key and are the only fields the
+			// API refuses to change in place, so both replace the resource.
+			"if": schema.StringAttribute{
+				Required:    true,
+				Description: "Parent interface for the VLAN.",
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.RequiresReplace(),
+				},
+			},
+			"tag": schema.Int64Attribute{
+				Required:    true,
+				Description: "VLAN tag (1-4094).",
+				PlanModifiers: []planmodifier.Int64{
+					int64planmodifier.RequiresReplace(),
+				},
+			},
 			"pcp":    optionalIntAttribute("802.1p priority code point (0-7)."),
 			"descr":  optionalStringAttribute("Description for the VLAN."),
 			"vlanif": schema.StringAttribute{Computed: true, Description: "The generated VLAN interface name (e.g. `vlan0.10`)."},
@@ -259,10 +276,17 @@ func (r *interfaceVLANResource) Create(ctx context.Context, req resource.CreateR
 	setInt(payload, "tag", plan.Tag)
 	setInt(payload, "pcp", plan.PCP)
 	setString(payload, "descr", plan.Descr)
-	if _, err := r.client.Create(ctx, interfaceVLANSingular, applyNow(payload)); err != nil {
+	raw, err := r.client.Create(ctx, interfaceVLANSingular, applyNow(payload))
+	if err != nil {
 		resp.Diagnostics.AddError("failed to create VLAN", err.Error())
 		return
 	}
+	obj, err := decodeObject(raw)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to create VLAN", err.Error())
+		return
+	}
+	plan.VLANIf = strValue(getString(obj, "vlanif"))
 	plan.ID = types.StringValue(r.key(plan.If.ValueString(), plan.Tag.ValueInt64()))
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
@@ -323,10 +347,17 @@ func (r *interfaceVLANResource) Update(ctx context.Context, req resource.UpdateR
 	payload := map[string]any{"id": id}
 	setInt(payload, "pcp", plan.PCP)
 	setString(payload, "descr", plan.Descr)
-	if _, err := r.client.Update(ctx, interfaceVLANSingular, applyNow(payload)); err != nil {
+	raw, err := r.client.Update(ctx, interfaceVLANSingular, applyNow(payload))
+	if err != nil {
 		resp.Diagnostics.AddError("failed to update VLAN", err.Error())
 		return
 	}
+	obj, err := decodeObject(raw)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to update VLAN", err.Error())
+		return
+	}
+	plan.VLANIf = strValue(getString(obj, "vlanif"))
 	plan.ID = types.StringValue(r.key(iface, tag))
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
