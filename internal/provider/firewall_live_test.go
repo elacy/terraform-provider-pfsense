@@ -19,19 +19,6 @@ import (
 // exception: it is keyed on the interface it attaches to), refuses to start
 // when that identity is already on the box, and asserts through CheckDestroy
 // that the object is gone once the test finishes.
-//
-// Seven of these resources cannot complete a create against the live API today
-// because of defects in the resources themselves. Those tests are written in
-// full and were driven against the live box up to the point where they break;
-// each one carries a testAccSkipKnownProviderBug guard naming the exact defect,
-// which is the single line to delete once the resource is fixed.
-
-// testAccSkipKnownProviderBug marks a live test as blocked by a defect in the
-// resource implementation rather than by the test or the box.
-func testAccSkipKnownProviderBug(t *testing.T, resourceType, reason string) {
-	t.Helper()
-	t.Skipf("%s live CRUD is blocked by a provider defect: %s", resourceType, reason)
-}
 
 // ---------------------------------------------------------------------------
 // pfsense_firewall_rule
@@ -206,8 +193,10 @@ func testAccCheckNATPortForwardAbsent() resource.TestCheckFunc {
 }
 
 // testAccNATPortForwardLiveConfig renders the port forward config for one step.
-// `ipprotocol`, the three booleans and `associated_rule_id` are set explicitly
-// because the API defaults them and echoes the defaults back on every read.
+// `ipprotocol` and the three booleans are set explicitly because the API
+// defaults them and echoes the defaults back on every read. `associated_rule_id`
+// is deliberately left unset: the API reports it as null on read, so pinning it
+// to the empty string it accepts on write would leave a permanent diff.
 func testAccNATPortForwardLiveConfig(localPort, descr string) string {
 	return testAccProviderConfig() + fmt.Sprintf(`
 resource "pfsense_firewall_nat_port_forward" "live" {
@@ -223,17 +212,12 @@ resource "pfsense_firewall_nat_port_forward" "live" {
   disabled           = false
   nordr              = false
   nosync             = false
-  associated_rule_id = ""
 }
 `, testAccLivePortForwardIface, testAccLivePortForwardProtocol, testAccLivePortForwardDestination,
 		testAccLivePortForwardTarget, localPort, descr)
 }
 
 func TestAccFirewallNATPortForwardResourceLive(t *testing.T) {
-	testAccSkipKnownProviderBug(t, "pfsense_firewall_nat_port_forward",
-		"Create never populates the computed `created_time`, `created_by`, `updated_time` and `updated_by` attributes, "+
-			"so Terraform rejects the apply with \"Provider returned invalid result object after apply\"")
-
 	resource.Test(t, resource.TestCase{
 		PreCheck: func() {
 			testAccPreCheck(t)
@@ -552,8 +536,8 @@ resource "pfsense_firewall_schedule" "live" {
   descr = %q
   timerange = [
     {
-      month      = 1
-      day        = 1
+      month      = [1]
+      day        = [1]
       hour       = "0:00-23:59"
       rangedescr = %q
     }
@@ -563,10 +547,6 @@ resource "pfsense_firewall_schedule" "live" {
 }
 
 func TestAccFirewallScheduleResourceLive(t *testing.T) {
-	testAccSkipKnownProviderBug(t, "pfsense_firewall_schedule",
-		"timerange.month/day/position are modelled as int64 but the API only accepts arrays, so every create fails with "+
-			"FIELD_INVALID_MANY_VALUE (\"Field `month` must be of type `array`\")")
-
 	resource.Test(t, resource.TestCase{
 		PreCheck: func() {
 			testAccPreCheck(t)
@@ -583,6 +563,8 @@ func TestAccFirewallScheduleResourceLive(t *testing.T) {
 					resource.TestCheckResourceAttr("pfsense_firewall_schedule.live", "descr", "acceptance test"),
 					resource.TestCheckResourceAttr("pfsense_firewall_schedule.live", "timerange.#", "1"),
 					resource.TestCheckResourceAttr("pfsense_firewall_schedule.live", "timerange.0.hour", "0:00-23:59"),
+					resource.TestCheckResourceAttr("pfsense_firewall_schedule.live", "timerange.0.month.0", "1"),
+					resource.TestCheckResourceAttr("pfsense_firewall_schedule.live", "timerange.0.day.0", "1"),
 				),
 			},
 			{
@@ -672,10 +654,6 @@ resource "pfsense_firewall_virtual_ip" "live" {
 }
 
 func TestAccFirewallVirtualIPResourceLive(t *testing.T) {
-	testAccSkipKnownProviderBug(t, "pfsense_firewall_virtual_ip",
-		"Create never populates the computed `uniqid` and `carp_status` attributes, so Terraform rejects the apply with "+
-			"\"Provider returned invalid result object after apply\"; the write-only `password` is also never returned by the API")
-
 	resource.Test(t, resource.TestCase{
 		PreCheck: func() {
 			testAccPreCheck(t)
@@ -780,10 +758,6 @@ resource "pfsense_firewall_traffic_shaper" "live" {
 }
 
 func TestAccFirewallTrafficShaperResourceLive(t *testing.T) {
-	testAccSkipKnownProviderBug(t, "pfsense_firewall_traffic_shaper",
-		"Create never populates the computed `name` attribute, so Terraform rejects the apply with "+
-			"\"Provider returned invalid result object after apply\"")
-
 	resource.Test(t, resource.TestCase{
 		PreCheck: func() {
 			testAccPreCheck(t)
@@ -889,10 +863,6 @@ resource "pfsense_firewall_traffic_shaper_limiter" "live" {
 }
 
 func TestAccFirewallTrafficShaperLimiterResourceLive(t *testing.T) {
-	testAccSkipKnownProviderBug(t, "pfsense_firewall_traffic_shaper_limiter",
-		"Create never populates the computed `number` attribute, so Terraform rejects the apply with "+
-			"\"Provider returned invalid result object after apply\"")
-
 	resource.Test(t, resource.TestCase{
 		PreCheck: func() {
 			testAccPreCheck(t)
@@ -1041,7 +1011,8 @@ func testAccCheckTrafficShaperQueueAbsent(parentKey, name string) resource.TestC
 // testAccTrafficShaperQueueLiveConfig renders the queue config for one step.
 // The three HFSC service curves are enabled because their `*_m2` limits are
 // required by the schema and the API only accepts them when the matching
-// toggle is on.
+// toggle is on. The four scheduler-option booleans default to false on the box
+// and are echoed back on every read, so they are pinned to keep the plan empty.
 func testAccTrafficShaperQueueLiveConfig(description string) string {
 	return testAccProviderConfig() + fmt.Sprintf(`
 resource "pfsense_firewall_traffic_shaper_queue" "live" {
@@ -1053,6 +1024,10 @@ resource "pfsense_firewall_traffic_shaper_queue" "live" {
   bandwidthtype = "Mb"
   description   = %q
   default       = true
+  red           = false
+  rio           = false
+  ecn           = false
+  codel         = false
   upperlimit    = true
   upperlimit_m2 = "10Mb"
   realtime      = true
@@ -1064,10 +1039,6 @@ resource "pfsense_firewall_traffic_shaper_queue" "live" {
 }
 
 func TestAccFirewallTrafficShaperQueueResourceLive(t *testing.T) {
-	testAccSkipKnownProviderBug(t, "pfsense_firewall_traffic_shaper_queue",
-		"Create never populates the computed `interface` attribute, so Terraform rejects the apply with "+
-			"\"Provider returned invalid result object after apply\"")
-
 	resource.Test(t, resource.TestCase{
 		PreCheck: func() {
 			testAccPreCheck(t)
@@ -1228,10 +1199,6 @@ resource "pfsense_firewall_traffic_shaper_limiter_queue" "live" {
 }
 
 func TestAccFirewallTrafficShaperLimiterQueueResourceLive(t *testing.T) {
-	testAccSkipKnownProviderBug(t, "pfsense_firewall_traffic_shaper_limiter_queue",
-		"Create never populates the computed `number` attribute, so Terraform rejects the apply with "+
-			"\"Provider returned invalid result object after apply\"")
-
 	resource.Test(t, resource.TestCase{
 		PreCheck: func() {
 			testAccPreCheck(t)

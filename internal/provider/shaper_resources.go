@@ -120,7 +120,7 @@ func (r *virtualIPResource) Schema(_ context.Context, _ resource.SchemaRequest, 
 			"vhid":     schema.Int64Attribute{Required: true, Description: "The VHID group shared by all CARP members (CARP mode only)."},
 			"advbase":  optionalIntAttribute("The base frequency that this machine advertises (CARP mode only)."),
 			"advskew":  optionalIntAttribute("The frequency skew that this machine advertises (CARP mode only)."),
-			"password": requiredStringAttribute("The VHID group password shared by all CARP members (CARP mode only)."),
+			"password": sensitiveStringAttribute("The VHID group password shared by all CARP members (CARP mode only). Write-only: the API never returns it, so the configured value is retained in state."),
 			"carp_status": schema.StringAttribute{
 				Computed:    true,
 				Description: "The current CARP status of this virtual IP (CARP mode only).",
@@ -155,10 +155,18 @@ func (r *virtualIPResource) Create(ctx context.Context, req resource.CreateReque
 	if resp.Diagnostics.HasError() || r.client == nil {
 		return
 	}
-	if _, err := r.client.Create(ctx, virtualIPSingular, applyNow(r.payload(plan))); err != nil {
+	raw, err := r.client.Create(ctx, virtualIPSingular, applyNow(r.payload(plan)))
+	if err != nil {
 		resp.Diagnostics.AddError("failed to create virtual IP", err.Error())
 		return
 	}
+	obj, err := decodeObject(raw)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to create virtual IP", err.Error())
+		return
+	}
+	plan.Uniqid = strValue(getString(obj, "uniqid"))
+	plan.CARPStatus = strValue(getString(obj, "carp_status"))
 	plan.ID = plan.Descr
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
@@ -194,7 +202,11 @@ func (r *virtualIPResource) Read(ctx context.Context, req resource.ReadRequest, 
 	state.Vhid = intValue(getInt(obj, "vhid"))
 	state.Advbase = intValue(getInt(obj, "advbase"))
 	state.Advskew = intValue(getInt(obj, "advskew"))
-	state.Password = strValue(getString(obj, "password"))
+	// The CARP password is write-only: overwriting state with the (absent)
+	// API value would drop it and leave a permanent diff.
+	if password := getString(obj, "password"); password != nil {
+		state.Password = types.StringValue(*password)
+	}
 	state.CARPStatus = strValue(getString(obj, "carp_status"))
 	state.CARPMode = strValue(getString(obj, "carp_mode"))
 	state.CARPPeer = strValue(getString(obj, "carp_peer"))
@@ -222,10 +234,18 @@ func (r *virtualIPResource) Update(ctx context.Context, req resource.UpdateReque
 	}
 	payload := r.payload(plan)
 	payload["id"] = id
-	if _, err := r.client.Update(ctx, virtualIPSingular, applyNow(payload)); err != nil {
+	raw, err := r.client.Update(ctx, virtualIPSingular, applyNow(payload))
+	if err != nil {
 		resp.Diagnostics.AddError("failed to update virtual IP", err.Error())
 		return
 	}
+	obj, err := decodeObject(raw)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to update virtual IP", err.Error())
+		return
+	}
+	plan.Uniqid = strValue(getString(obj, "uniqid"))
+	plan.CARPStatus = strValue(getString(obj, "carp_status"))
 	plan.ID = types.StringValue(descr)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
@@ -417,6 +437,19 @@ func (r *trafficShaperResource) Create(ctx context.Context, req resource.CreateR
 		resp.Diagnostics.AddError("failed to create traffic shaper", err.Error())
 		return
 	}
+	// The create response omits the system-generated `name`, so it is read
+	// back from the shaper itself.
+	iface := plan.Interface.ValueString()
+	_, obj, found, err := findByKey(ctx, r.client, trafficShapersPlural, "interface", iface)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to create traffic shaper", err.Error())
+		return
+	}
+	if !found {
+		resp.Diagnostics.AddError("failed to create traffic shaper", "no traffic shaper on "+iface+" after creation")
+		return
+	}
+	plan.Name = strValue(getString(obj, "name"))
 	plan.ID = plan.Interface
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
@@ -474,10 +507,17 @@ func (r *trafficShaperResource) Update(ctx context.Context, req resource.UpdateR
 	}
 	payload := r.payload(plan)
 	payload["id"] = id
-	if _, err := r.client.Update(ctx, trafficShaperSingular, applyNow(payload)); err != nil {
+	raw, err := r.client.Update(ctx, trafficShaperSingular, applyNow(payload))
+	if err != nil {
 		resp.Diagnostics.AddError("failed to update traffic shaper", err.Error())
 		return
 	}
+	obj, err := decodeObject(raw)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to update traffic shaper", err.Error())
+		return
+	}
+	plan.Name = strValue(getString(obj, "name"))
 	plan.ID = types.StringValue(iface)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
@@ -815,10 +855,17 @@ func (r *trafficShaperLimiterResource) Create(ctx context.Context, req resource.
 	if resp.Diagnostics.HasError() || r.client == nil {
 		return
 	}
-	if _, err := r.client.Create(ctx, trafficShaperLimiterSingular, applyNow(r.payload(plan))); err != nil {
+	raw, err := r.client.Create(ctx, trafficShaperLimiterSingular, applyNow(r.payload(plan)))
+	if err != nil {
 		resp.Diagnostics.AddError("failed to create traffic shaper limiter", err.Error())
 		return
 	}
+	obj, err := decodeObject(raw)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to create traffic shaper limiter", err.Error())
+		return
+	}
+	plan.Number = intValue(getInt(obj, "number"))
 	plan.ID = plan.Name
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
@@ -917,10 +964,17 @@ func (r *trafficShaperLimiterResource) Update(ctx context.Context, req resource.
 	}
 	payload := r.payload(plan)
 	payload["id"] = id
-	if _, err := r.client.Update(ctx, trafficShaperLimiterSingular, applyNow(payload)); err != nil {
+	raw, err := r.client.Update(ctx, trafficShaperLimiterSingular, applyNow(payload))
+	if err != nil {
 		resp.Diagnostics.AddError("failed to update traffic shaper limiter", err.Error())
 		return
 	}
+	obj, err := decodeObject(raw)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to update traffic shaper limiter", err.Error())
+		return
+	}
+	plan.Number = intValue(getInt(obj, "number"))
 	plan.ID = types.StringValue(name)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
@@ -1108,10 +1162,17 @@ func (r *trafficShaperQueueResource) Create(ctx context.Context, req resource.Cr
 	}
 	payload := r.payload(plan)
 	payload["parent_id"] = pid
-	if _, err := r.client.Create(ctx, trafficShaperQueueSingular, applyNow(payload)); err != nil {
+	raw, err := r.client.Create(ctx, trafficShaperQueueSingular, applyNow(payload))
+	if err != nil {
 		resp.Diagnostics.AddError("failed to create traffic shaper queue", err.Error())
 		return
 	}
+	obj, err := decodeObject(raw)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to create traffic shaper queue", err.Error())
+		return
+	}
+	plan.Interface = strValue(getString(obj, "interface"))
 	plan.ID = types.StringValue(parentKey + "|" + plan.Name.ValueString())
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
@@ -1205,10 +1266,17 @@ func (r *trafficShaperQueueResource) Update(ctx context.Context, req resource.Up
 	payload := r.payload(plan)
 	payload["parent_id"] = pid
 	payload["id"] = id
-	if _, err := r.client.Update(ctx, trafficShaperQueueSingular, applyNow(payload)); err != nil {
+	raw, err := r.client.Update(ctx, trafficShaperQueueSingular, applyNow(payload))
+	if err != nil {
 		resp.Diagnostics.AddError("failed to update traffic shaper queue", err.Error())
 		return
 	}
+	obj, err := decodeObject(raw)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to update traffic shaper queue", err.Error())
+		return
+	}
+	plan.Interface = strValue(getString(obj, "interface"))
 	plan.ID = types.StringValue(parentKey + "|" + name)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
@@ -1421,10 +1489,17 @@ func (r *trafficShaperLimiterQueueResource) Create(ctx context.Context, req reso
 	}
 	payload := r.payload(plan)
 	payload["parent_id"] = pid
-	if _, err := r.client.Create(ctx, trafficShaperLimiterQueueSingular, applyNow(payload)); err != nil {
+	raw, err := r.client.Create(ctx, trafficShaperLimiterQueueSingular, applyNow(payload))
+	if err != nil {
 		resp.Diagnostics.AddError("failed to create limiter queue", err.Error())
 		return
 	}
+	obj, err := decodeObject(raw)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to create limiter queue", err.Error())
+		return
+	}
+	plan.Number = intValue(getInt(obj, "number"))
 	plan.ID = types.StringValue(parentKey + "|" + plan.Name.ValueString())
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
@@ -1523,10 +1598,17 @@ func (r *trafficShaperLimiterQueueResource) Update(ctx context.Context, req reso
 	payload := r.payload(plan)
 	payload["parent_id"] = pid
 	payload["id"] = id
-	if _, err := r.client.Update(ctx, trafficShaperLimiterQueueSingular, applyNow(payload)); err != nil {
+	raw, err := r.client.Update(ctx, trafficShaperLimiterQueueSingular, applyNow(payload))
+	if err != nil {
 		resp.Diagnostics.AddError("failed to update limiter queue", err.Error())
 		return
 	}
+	obj, err := decodeObject(raw)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to update limiter queue", err.Error())
+		return
+	}
+	plan.Number = intValue(getInt(obj, "number"))
 	plan.ID = types.StringValue(parentKey + "|" + name)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }

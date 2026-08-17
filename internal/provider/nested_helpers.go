@@ -31,6 +31,15 @@ func attrToGo(v attr.Value) any {
 			return nil
 		}
 		return t.ValueFloat64()
+	case types.List:
+		if t.IsNull() || t.IsUnknown() {
+			return nil
+		}
+		out := make([]any, 0, len(t.Elements()))
+		for _, e := range t.Elements() {
+			out = append(out, attrToGo(e))
+		}
+		return out
 	default:
 		// Fall back to the string representation for other primitive types.
 		return nil
@@ -87,6 +96,21 @@ func objectsToListValue(ctx context.Context, objs []map[string]any, objType attr
 
 // goToAttrValue converts a decoded JSON value into the matching framework value.
 func goToAttrValue(typ attr.Type, v any) attr.Value {
+	if lt, ok := typ.(types.ListType); ok {
+		arr, ok := v.([]any)
+		if !ok {
+			return types.ListNull(lt.ElemType)
+		}
+		elems := make([]attr.Value, 0, len(arr))
+		for _, e := range arr {
+			elems = append(elems, goToAttrValue(lt.ElemType, e))
+		}
+		out, diags := types.ListValue(lt.ElemType, elems)
+		if diags.HasError() {
+			return types.ListNull(lt.ElemType)
+		}
+		return out
+	}
 	if v == nil {
 		return nullValue(typ)
 	}
@@ -120,6 +144,9 @@ func goToAttrValue(typ attr.Type, v any) attr.Value {
 
 // nullValue returns the null value for a given framework type.
 func nullValue(typ attr.Type) attr.Value {
+	if lt, ok := typ.(types.ListType); ok {
+		return types.ListNull(lt.ElemType)
+	}
 	switch typ {
 	case types.StringType:
 		return types.StringNull()

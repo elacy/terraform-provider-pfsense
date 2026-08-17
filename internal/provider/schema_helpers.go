@@ -113,6 +113,10 @@ func optionalStringListAttribute(desc string) schema.ListAttribute {
 	return schema.ListAttribute{ElementType: types.StringType, Optional: true, Description: desc}
 }
 
+func optionalIntListAttribute(desc string) schema.ListAttribute {
+	return schema.ListAttribute{ElementType: types.Int64Type, Optional: true, Description: desc}
+}
+
 func requiredStringListAttribute(desc string) schema.ListAttribute {
 	return schema.ListAttribute{ElementType: types.StringType, Required: true, Description: desc}
 }

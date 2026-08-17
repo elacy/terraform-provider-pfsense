@@ -26,10 +26,13 @@ const (
 	firewallScheduleSingular = "/api/v2/firewall/schedule"
 )
 
+// The API models `position`, `month` and `day` as arrays of integers (a time
+// range covers one or more weekday positions, or one or more month/day pairs),
+// and rejects scalars with FIELD_INVALID_MANY_VALUE.
 var timeRangeAttrTypes = map[string]attr.Type{
-	"position":   types.Int64Type,
-	"month":      types.Int64Type,
-	"day":        types.Int64Type,
+	"position":   types.ListType{ElemType: types.Int64Type},
+	"month":      types.ListType{ElemType: types.Int64Type},
+	"day":        types.ListType{ElemType: types.Int64Type},
 	"hour":       types.StringType,
 	"rangedescr": types.StringType,
 }
@@ -63,9 +66,9 @@ func (r *firewallScheduleResource) Schema(_ context.Context, _ resource.SchemaRe
 				Description: "Time ranges that make up the schedule.",
 				NestedObject: schema.NestedAttributeObject{
 					Attributes: map[string]schema.Attribute{
-						"position":   optionalIntAttribute("Position of the time range."),
-						"month":      optionalIntAttribute("Month(s) this range applies to (bitmask; 0 = all)."),
-						"day":        optionalIntAttribute("Day(s) this range applies to (bitmask; 0 = all)."),
+						"position":   optionalIntListAttribute("Weekday position(s) this range applies to (1 = Sunday through 7 = Saturday)."),
+						"month":      optionalIntListAttribute("Month(s) this range applies to, one entry per matching `day` entry."),
+						"day":        optionalIntListAttribute("Day(s) of the month this range applies to, one entry per matching `month` entry."),
 						"hour":       optionalStringAttribute("Hour range (e.g. `9:00-17:00`)."),
 						"rangedescr": optionalStringAttribute("Description for this time range."),
 					},
@@ -85,10 +88,17 @@ func (r *firewallScheduleResource) Create(ctx context.Context, req resource.Crea
 	setString(payload, "name", plan.Name)
 	setString(payload, "descr", plan.Descr)
 	payload["timerange"] = listObjects(plan.TimeRange)
-	if _, err := r.client.Create(ctx, firewallScheduleSingular, applyNow(payload)); err != nil {
+	raw, err := r.client.Create(ctx, firewallScheduleSingular, applyNow(payload))
+	if err != nil {
 		resp.Diagnostics.AddError("failed to create schedule", err.Error())
 		return
 	}
+	obj, err := decodeObject(raw)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to create schedule", err.Error())
+		return
+	}
+	plan.Active = boolValue(getBool(obj, "active"))
 	plan.ID = plan.Name
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
@@ -142,10 +152,17 @@ func (r *firewallScheduleResource) Update(ctx context.Context, req resource.Upda
 	payload := map[string]any{"id": id}
 	setString(payload, "descr", plan.Descr)
 	payload["timerange"] = listObjects(plan.TimeRange)
-	if _, err := r.client.Update(ctx, firewallScheduleSingular, applyNow(payload)); err != nil {
+	raw, err := r.client.Update(ctx, firewallScheduleSingular, applyNow(payload))
+	if err != nil {
 		resp.Diagnostics.AddError("failed to update schedule", err.Error())
 		return
 	}
+	obj, err := decodeObject(raw)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to update schedule", err.Error())
+		return
+	}
+	plan.Active = boolValue(getBool(obj, "active"))
 	plan.ID = types.StringValue(name)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
