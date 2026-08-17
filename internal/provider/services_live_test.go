@@ -2,9 +2,12 @@ package provider
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
+	"github.com/elacy/terraform-provider-pfsense/v2/internal/client"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
 )
@@ -75,19 +78,19 @@ type testAccLiveChild struct {
 // there at all means the child is gone too — which is what a destroy check needs,
 // since Terraform tears the parent down after the child.
 func (c testAccLiveChild) exists() (bool, error) {
-	client, err := testAccClient()
+	api, err := testAccClient()
 	if err != nil {
 		return false, fmt.Errorf("building verification client: %w", err)
 	}
 	ctx := context.Background()
-	parentID, _, found, err := findByKeys(ctx, client, c.parentPlural, c.parentFilters)
+	parentID, _, found, err := findByKeys(ctx, api, c.parentPlural, c.parentFilters)
 	if err != nil {
 		return false, fmt.Errorf("looking up the parent of %s %q: %w", c.kind, c.keyValue, err)
 	}
 	if !found {
 		return false, nil
 	}
-	_, _, found, err = findByKeyInParent(ctx, client, c.childPlural, formatID(parentID), c.keyField, c.keyValue)
+	_, _, found, err = findByKeyInParent(ctx, api, c.childPlural, formatID(parentID), c.keyField, c.keyValue)
 	if err != nil {
 		return false, fmt.Errorf("looking up %s %q: %w", c.kind, c.keyValue, err)
 	}
@@ -121,6 +124,60 @@ func (c testAccLiveChild) checkAbsent() resource.TestCheckFunc {
 	}
 }
 
+// testAccLivePackageMissing asks the box whether a package-backed model can be
+// written at all, and returns the box's own explanation when it cannot.
+//
+// The probe has to be a write. Reads say nothing useful about an uninstalled
+// package: `/api/v2/services/bind/access_lists` returns an empty collection and
+// `/api/v2/services/cron/jobs` even returns the box's built-in crontab, while
+// the very same models reject a create with MODEL_MISSING_REQUIRED_PACKAGE. A
+// probe that does create an object (on a box where the package is installed)
+// deletes it again before returning.
+func testAccLivePackageMissing(singularPath string, probe map[string]any) (string, error) {
+	c, err := testAccClient()
+	if err != nil {
+		return "", fmt.Errorf("building verification client: %w", err)
+	}
+	ctx := context.Background()
+
+	raw, err := c.Create(ctx, singularPath, applyNow(probe))
+	if err != nil {
+		var apiErr *client.APIError
+		if errors.As(err, &apiErr) && apiErr.ResponseID == "MODEL_MISSING_REQUIRED_PACKAGE" {
+			return strings.TrimSpace(apiErr.Message), nil
+		}
+		// Any other rejection means the box got as far as validating the payload,
+		// which it can only do once the package is installed.
+		return "", nil
+	}
+
+	obj, err := decodeObject(raw)
+	if err != nil {
+		return "", fmt.Errorf("decoding the probe object created at %s: %w", singularPath, err)
+	}
+	if err := c.Delete(ctx, singularPath, client.Query{}.Set("id", formatID(obj["id"])).Set("apply", "true")); err != nil {
+		return "", fmt.Errorf("removing the probe object created at %s: %w", singularPath, err)
+	}
+	return "", nil
+}
+
+// testAccSkipWhenPackageMissing skips a live test when the pfSense package its
+// resource needs is not installed on the box, reporting what the box said. The
+// reference box sits on an isolated bridge with no route to pkg.pfsense.org, so
+// installing one is not an option.
+func testAccSkipWhenPackageMissing(t *testing.T, resourceName, singularPath string, probe map[string]any) {
+	t.Helper()
+
+	missing, err := testAccLivePackageMissing(singularPath, probe)
+	if err != nil {
+		t.Fatalf("probing whether %s is usable on the box: %v", resourceName, err)
+	}
+	if missing != "" {
+		t.Skipf("skipping live CRUD for %s: %s The reference box is on an isolated bridge with no "+
+			"route to pkg.pfsense.org, so the package cannot be installed.", resourceName, missing)
+	}
+}
+
 // testAccLiveComposite identifies an object whose natural key spans several
 // fields — a DNS override's host and domain, say — and resolves it the way the
 // composite-key resources do. `label` is the rendered key, used in messages.
@@ -132,11 +189,11 @@ type testAccLiveComposite struct {
 }
 
 func (o testAccLiveComposite) exists() (bool, error) {
-	client, err := testAccClient()
+	c, err := testAccClient()
 	if err != nil {
 		return false, fmt.Errorf("building verification client: %w", err)
 	}
-	_, _, found, err := findByKeys(context.Background(), client, o.plural, o.filters)
+	_, _, found, err := findByKeys(context.Background(), c, o.plural, o.filters)
 	if err != nil {
 		return false, fmt.Errorf("looking up %s %q: %w", o.kind, o.label, err)
 	}
@@ -263,11 +320,11 @@ func TestAccServicesDHCPServerResourceLive(t *testing.T) {
 // enabled DHCP on the management interface would fail here.
 func testAccCheckLiveDHCPServerDisabled() resource.TestCheckFunc {
 	return func(*terraform.State) error {
-		client, err := testAccClient()
+		c, err := testAccClient()
 		if err != nil {
 			return fmt.Errorf("building verification client: %w", err)
 		}
-		_, obj, found, err := findByKey(context.Background(), client, dhcpServerPlural, "interface", testAccLiveDHCPInterface)
+		_, obj, found, err := findByKey(context.Background(), c, dhcpServerPlural, "interface", testAccLiveDHCPInterface)
 		if err != nil {
 			return fmt.Errorf("reading the DHCP server on %s: %w", testAccLiveDHCPInterface, err)
 		}
@@ -285,11 +342,11 @@ func testAccCheckLiveDHCPServerDisabled() resource.TestCheckFunc {
 // daemon. Nothing in this batch may start one on the management network.
 func testAccCheckLiveDHCPDaemonStopped() resource.TestCheckFunc {
 	return func(*terraform.State) error {
-		client, err := testAccClient()
+		c, err := testAccClient()
 		if err != nil {
 			return fmt.Errorf("building verification client: %w", err)
 		}
-		items, err := client.List(context.Background(), servicesStatusPlural, nil)
+		items, err := c.List(context.Background(), servicesStatusPlural, nil)
 		if err != nil {
 			return fmt.Errorf("reading the service inventory: %w", err)
 		}
@@ -1030,4 +1087,452 @@ func TestAccServicesDNSForwarderHostOverrideAliasResourceLive(t *testing.T) {
 			},
 		},
 	})
+}
+
+// ---------------------------------------------------------------------------
+// pfsense_services_ntp_settings (singleton)
+// ---------------------------------------------------------------------------
+
+// Singletons have no create/destroy semantics: Delete is a no-op and the ID is
+// always `system`. The test therefore captures what the box holds, applies a
+// reversible change, puts the captured value back in a later step, and asserts
+// over the API that it stuck.
+//
+// The moved field is the orphan-mode stratum, which only decides how the box
+// advertises its own clock once every configured time source has been
+// unreachable for long enough — it cannot affect the management path, and the
+// service-enabled state is pinned to the box's own value in every step so ntpd
+// is neither started nor stopped. `12` is the API default, which is what makes
+// the guard idempotent: a box found on the test value is a leftover from a run
+// that died mid-test and is rolled back before this one starts.
+const (
+	testAccLiveNTPOrphan         = 11
+	testAccLiveNTPOrphanFallback = 12
+)
+
+// testAccLiveNTPPinnedFields are the settings the resource reads back and the
+// configuration therefore has to pin to the box's own values, so that the only
+// field with a diff is the orphan stratum the test moves. `leapsec` and
+// `serverauthkey` are absent on purpose: the API never echoes them back.
+var testAccLiveNTPPinnedFields = []string{
+	"enable", "interface", "ntpmaxpeers", "ntpminpoll", "ntpmaxpoll", "dnsresolv",
+	"logpeer", "logsys", "clockstats", "loopstats", "peerstats", "statsgraph",
+	"serverauth", "serverauthalgo",
+}
+
+var (
+	testAccOrigNTPSettings map[string]any
+	testAccOrigNTPDRunning bool
+)
+
+// testAccHCLAttrFromAPI renders one captured API field as an HCL attribute line,
+// or nothing when the box reports null for it: an attribute the box has no value
+// for reads back as null, so pinning it would create a diff that never settles.
+func testAccHCLAttrFromAPI(obj map[string]any, field string) string {
+	switch v := obj[field].(type) {
+	case bool:
+		return fmt.Sprintf("  %s = %t\n", field, v)
+	case float64:
+		return fmt.Sprintf("  %s = %d\n", field, int64(v))
+	case string:
+		return fmt.Sprintf("  %s = %q\n", field, v)
+	case []any:
+		return fmt.Sprintf("  %s = %s\n", field, testAccHCLStringList(getStringSlice(obj, field)))
+	default:
+		return ""
+	}
+}
+
+// testAccLiveNTPDRunning reports whether the box is running ntpd right now. The
+// singleton test asserts this never changes: pinning `enable` to the captured
+// value is what keeps the daemon where it was, and this proves it.
+func testAccLiveNTPDRunning() (bool, error) {
+	c, err := testAccClient()
+	if err != nil {
+		return false, fmt.Errorf("building verification client: %w", err)
+	}
+	items, err := c.List(context.Background(), servicesStatusPlural, nil)
+	if err != nil {
+		return false, fmt.Errorf("reading the service inventory: %w", err)
+	}
+	for _, item := range items {
+		service, err := decodeObject(item)
+		if err != nil {
+			return false, fmt.Errorf("decoding a service inventory entry: %w", err)
+		}
+		if objectKey(service, "name") == "ntpd" {
+			return objectKey(service, "status") == "true", nil
+		}
+	}
+	return false, nil
+}
+
+func testAccCheckLiveNTPDUnchanged() resource.TestCheckFunc {
+	return func(*terraform.State) error {
+		running, err := testAccLiveNTPDRunning()
+		if err != nil {
+			return err
+		}
+		if running != testAccOrigNTPDRunning {
+			return fmt.Errorf("ntpd running on the box: %t, want %t (the live tests never start or stop it)", running, testAccOrigNTPDRunning)
+		}
+		return nil
+	}
+}
+
+func testAccPreCheckLiveNTPSettings(t *testing.T) {
+	t.Helper()
+
+	obj, err := testAccLiveGetObject(servicesNTPSettingsPath)
+	if err != nil {
+		t.Fatalf("reading the current NTP settings: %v", err)
+	}
+
+	if orphan := getInt(obj, "orphan"); orphan != nil && *orphan == testAccLiveNTPOrphan {
+		t.Logf("restoring orphan stratum %d left behind by an earlier run", testAccLiveNTPOrphanFallback)
+		if err := testAccLiveUpdateObject(servicesNTPSettingsPath, map[string]any{"orphan": testAccLiveNTPOrphanFallback}); err != nil {
+			t.Fatalf("restoring the orphan stratum left behind by an earlier run: %v", err)
+		}
+		if obj, err = testAccLiveGetObject(servicesNTPSettingsPath); err != nil {
+			t.Fatalf("re-reading the NTP settings after the rollback: %v", err)
+		}
+	}
+	if getInt(obj, "orphan") == nil {
+		t.Fatalf("the box reports no orphan stratum; refusing to run the live test")
+	}
+
+	running, err := testAccLiveNTPDRunning()
+	if err != nil {
+		t.Fatalf("reading the service inventory: %v", err)
+	}
+
+	testAccOrigNTPSettings, testAccOrigNTPDRunning = obj, running
+}
+
+// testAccServicesNTPSettingsLiveConfig renders the settings for one step: every
+// field the resource reads back is pinned to the captured value, and only the
+// orphan stratum moves.
+func testAccServicesNTPSettingsLiveConfig(orphan int64) string {
+	var b strings.Builder
+	b.WriteString(testAccProviderConfig())
+	b.WriteString("\nresource \"pfsense_services_ntp_settings\" \"live\" {\n")
+	for _, field := range testAccLiveNTPPinnedFields {
+		b.WriteString(testAccHCLAttrFromAPI(testAccOrigNTPSettings, field))
+	}
+	b.WriteString(fmt.Sprintf("  orphan = %d\n}\n", orphan))
+	return b.String()
+}
+
+func TestAccServicesNTPSettingsSingletonLive(t *testing.T) {
+	// The captured settings are interpolated into the step configurations, which
+	// the test case renders as it is built — so the capture has to happen before
+	// resource.Test, not in its PreCheck hook.
+	testAccPreCheck(t)
+	testAccPreCheckLiveNTPSettings(t)
+
+	origOrphan := *getInt(testAccOrigNTPSettings, "orphan")
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		// Delete is a no-op, so this asserts what really matters: the box is back
+		// on the stratum it started with, with ntpd where it was.
+		CheckDestroy: testAccCheckLiveObjectsAbsent(
+			testAccCheckLiveSingletonRestored(servicesNTPSettingsPath, func() map[string]string {
+				return map[string]string{"orphan": fmt.Sprintf("%d", origOrphan)}
+			}),
+			testAccCheckLiveNTPDUnchanged(),
+		),
+		Steps: []resource.TestStep{
+			{
+				Config: testAccServicesNTPSettingsLiveConfig(testAccLiveNTPOrphan),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("pfsense_services_ntp_settings.live", "id", "system"),
+					resource.TestCheckResourceAttr("pfsense_services_ntp_settings.live", "orphan", fmt.Sprintf("%d", testAccLiveNTPOrphan)),
+					testAccCheckLiveSingletonValue(servicesNTPSettingsPath, "orphan", func() string {
+						return fmt.Sprintf("%d", testAccLiveNTPOrphan)
+					}),
+					testAccCheckLiveNTPDUnchanged(),
+				),
+			},
+			{
+				// Restore: the box goes back to the stratum the precheck captured.
+				Config: testAccServicesNTPSettingsLiveConfig(origOrphan),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("pfsense_services_ntp_settings.live", "id", "system"),
+					testAccCheckLiveSingletonValue(servicesNTPSettingsPath, "orphan", func() string {
+						return fmt.Sprintf("%d", origOrphan)
+					}),
+					testAccCheckLiveNTPDUnchanged(),
+				),
+			},
+		},
+	})
+}
+
+// ---------------------------------------------------------------------------
+// pfsense_services_ntp_time_server
+// ---------------------------------------------------------------------------
+
+// The throwaway time server is a documentation address (RFC 5737) that answers
+// nothing, and every step sets `noselect`, which tells ntpd to collect
+// statistics for it but never discipline the clock from it. The box's own time
+// server is neither modified nor removed — the test only ever adds and removes
+// its own entry. The model has no description field, so nothing here can carry
+// the `tftest_` marker; the guard below is what keeps the test to its own entry.
+const testAccLiveNTPTimeServer = "192.0.2.123"
+
+func testAccServicesNTPTimeServerLiveConfig(serverType string) string {
+	return testAccProviderConfig() + fmt.Sprintf(`
+resource "pfsense_services_ntp_time_server" "live" {
+  timeserver = %q
+  type       = %q
+  prefer     = false
+  noselect   = true
+}
+`, testAccLiveNTPTimeServer, serverType)
+}
+
+func TestAccServicesNTPTimeServerResourceLive(t *testing.T) {
+	resource.Test(t, resource.TestCase{
+		PreCheck: func() {
+			testAccPreCheck(t)
+			testAccPreCheckLiveObjectAbsent(t, "NTP time server", ntpTimeServerPlural, "timeserver", testAccLiveNTPTimeServer)
+		},
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		CheckDestroy:             testAccCheckLiveObjectAbsent("NTP time server", ntpTimeServerPlural, "timeserver", testAccLiveNTPTimeServer),
+		Steps: []resource.TestStep{
+			{
+				Config: testAccServicesNTPTimeServerLiveConfig("server"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("pfsense_services_ntp_time_server.live", "id", testAccLiveNTPTimeServer),
+					resource.TestCheckResourceAttr("pfsense_services_ntp_time_server.live", "timeserver", testAccLiveNTPTimeServer),
+					resource.TestCheckResourceAttr("pfsense_services_ntp_time_server.live", "type", "server"),
+					resource.TestCheckResourceAttr("pfsense_services_ntp_time_server.live", "prefer", "false"),
+					resource.TestCheckResourceAttr("pfsense_services_ntp_time_server.live", "noselect", "true"),
+				),
+			},
+			{
+				// `timeserver` (the natural key) is unchanged; only the type moves.
+				Config: testAccServicesNTPTimeServerLiveConfig("peer"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("pfsense_services_ntp_time_server.live", "id", testAccLiveNTPTimeServer),
+					resource.TestCheckResourceAttr("pfsense_services_ntp_time_server.live", "type", "peer"),
+					resource.TestCheckResourceAttr("pfsense_services_ntp_time_server.live", "noselect", "true"),
+				),
+			},
+			{
+				ResourceName:      "pfsense_services_ntp_time_server.live",
+				ImportState:       true,
+				ImportStateId:     testAccLiveNTPTimeServer,
+				ImportStateVerify: true,
+			},
+		},
+	})
+}
+
+// ---------------------------------------------------------------------------
+// pfsense_services_cron_job
+// ---------------------------------------------------------------------------
+
+// A cron job is keyed by its whole schedule — every attribute of the resource is
+// part of the identity — so the `tftest_` marker rides along in the command as a
+// shell comment. The command itself is `/usr/bin/true`, which does nothing
+// whether or not cron fires it between create and destroy.
+const (
+	testAccLiveCronCommand = "/usr/bin/true # tftest_live_cron_job"
+	testAccLiveCronHour    = "3"
+	testAccLiveCronWho     = "root"
+)
+
+// testAccLiveCronJob locates the job on the box by the same composite key the
+// resource uses.
+func testAccLiveCronJob(minute string) testAccLiveComposite {
+	return testAccLiveComposite{
+		kind:   "cron job",
+		plural: cronJobPlural,
+		filters: map[string]string{
+			"minute":  minute,
+			"hour":    testAccLiveCronHour,
+			"mday":    "*",
+			"month":   "*",
+			"wday":    "*",
+			"who":     testAccLiveCronWho,
+			"command": testAccLiveCronCommand,
+		},
+		label: testAccLiveCronKey(minute),
+	}
+}
+
+// testAccLiveCronKey renders the resource ID (and import ID) of the throwaway
+// job: the schedule fields, the user and the command, separated by spaces.
+func testAccLiveCronKey(minute string) string {
+	return minute + " " + testAccLiveCronHour + " * * * " + testAccLiveCronWho + " " + testAccLiveCronCommand
+}
+
+func testAccServicesCronJobLiveConfig(minute string) string {
+	return testAccProviderConfig() + fmt.Sprintf(`
+resource "pfsense_services_cron_job" "live" {
+  minute  = %q
+  hour    = %q
+  mday    = "*"
+  month   = "*"
+  wday    = "*"
+  who     = %q
+  command = %q
+}
+`, minute, testAccLiveCronHour, testAccLiveCronWho, testAccLiveCronCommand)
+}
+
+func TestAccServicesCronJobResourceLive(t *testing.T) {
+	testAccPreCheck(t)
+	// Cron jobs are managed by a package. The reference box does not have it —
+	// even though `/api/v2/services/cron/jobs` lists the built-in crontab, a
+	// create is rejected — so this test reports that and stops rather than
+	// failing. The CRUD case below is what runs on a box that has the package.
+	testAccSkipWhenPackageMissing(t, "pfsense_services_cron_job", cronJobSingular, map[string]any{
+		"minute":  "59",
+		"hour":    testAccLiveCronHour,
+		"mday":    "*",
+		"month":   "*",
+		"wday":    "*",
+		"who":     testAccLiveCronWho,
+		"command": "/usr/bin/true # tftest_probe_cron_job",
+	})
+
+	resource.Test(t, resource.TestCase{
+		PreCheck: func() {
+			testAccPreCheck(t)
+			testAccLiveCronJob("0").preCheckAbsent(t)
+			testAccLiveCronJob("30").preCheckAbsent(t)
+		},
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		CheckDestroy: testAccCheckLiveObjectsAbsent(
+			testAccLiveCronJob("0").checkAbsent(),
+			testAccLiveCronJob("30").checkAbsent(),
+		),
+		Steps: []resource.TestStep{
+			{
+				Config: testAccServicesCronJobLiveConfig("0"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("pfsense_services_cron_job.live", "id", testAccLiveCronKey("0")),
+					resource.TestCheckResourceAttr("pfsense_services_cron_job.live", "minute", "0"),
+					resource.TestCheckResourceAttr("pfsense_services_cron_job.live", "hour", testAccLiveCronHour),
+					resource.TestCheckResourceAttr("pfsense_services_cron_job.live", "who", testAccLiveCronWho),
+					resource.TestCheckResourceAttr("pfsense_services_cron_job.live", "command", testAccLiveCronCommand),
+				),
+			},
+			{
+				// Every attribute of a cron job is part of its key, so there is no
+				// non-key field to move: this step edits the schedule in place (the
+				// API keeps the job in its slot and the resource's ID follows the new
+				// schedule), which is the only update the model can express.
+				Config: testAccServicesCronJobLiveConfig("30"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("pfsense_services_cron_job.live", "id", testAccLiveCronKey("30")),
+					resource.TestCheckResourceAttr("pfsense_services_cron_job.live", "minute", "30"),
+					testAccLiveCronJob("0").checkAbsent(),
+				),
+			},
+			{
+				// The import ID is the whole schedule, exactly as the resource ID
+				// renders it.
+				ResourceName:      "pfsense_services_cron_job.live",
+				ImportState:       true,
+				ImportStateId:     testAccLiveCronKey("30"),
+				ImportStateVerify: true,
+			},
+		},
+	})
+}
+
+// ---------------------------------------------------------------------------
+// Package-backed resources without live CRUD coverage
+//
+// The six resources below are backed by pfSense packages the reference box does
+// not have. Reads against their endpoints succeed and return empty collections,
+// so the tests do not assume anything: each one asks the box to write the object
+// its CRUD test would create and reports the answer it gets. Installing the
+// packages is not an option — the box is on an isolated bridge with no route to
+// pkg.pfsense.org — and their models are large enough that a configuration
+// written blind would be a guess, so each test skips with the box's own message
+// instead of pretending to cover the resource.
+// ---------------------------------------------------------------------------
+
+// testAccSkipUncoveredPackageResource is the shared body of those tests: it
+// skips either with what the box said about the missing package, or — on a box
+// that has it — with a note that the resource still needs a CRUD test written
+// against a live installation.
+func testAccSkipUncoveredPackageResource(t *testing.T, resourceName, pkg, singularPath string, probe map[string]any) {
+	t.Helper()
+
+	testAccPreCheck(t)
+	testAccSkipWhenPackageMissing(t, resourceName, singularPath, probe)
+	t.Skipf("skipping live CRUD for %s: the box accepted a write to %s, so %s is installed after all "+
+		"and this resource needs a live CRUD test written against it", resourceName, singularPath, pkg)
+}
+
+func TestAccServicesBindAccessListResourceLive(t *testing.T) {
+	testAccSkipUncoveredPackageResource(t,
+		"pfsense_services_bind_access_list", "pfSense-pkg-bind", bindAccessListSingular,
+		map[string]any{
+			"name":        "tftest_probe_access_list",
+			"description": "tftest probe",
+			"entries":     []map[string]any{{"value": "192.0.2.0/24", "description": "tftest probe"}},
+		},
+	)
+}
+
+func TestAccServicesBindViewResourceLive(t *testing.T) {
+	testAccSkipUncoveredPackageResource(t,
+		"pfsense_services_bind_view", "pfSense-pkg-bind", bindViewSingular,
+		map[string]any{
+			"name":      "tftest_probe_view",
+			"descr":     "tftest probe",
+			"recursion": false,
+		},
+	)
+}
+
+func TestAccServicesBindZoneResourceLive(t *testing.T) {
+	testAccSkipUncoveredPackageResource(t,
+		"pfsense_services_bind_zone", "pfSense-pkg-bind", bindZoneSingular,
+		map[string]any{
+			"name":        "tftest-probe.example.com",
+			"description": "tftest probe",
+			"type":        "master",
+		},
+	)
+}
+
+func TestAccServicesFreeRADIUSMACResourceLive(t *testing.T) {
+	testAccSkipUncoveredPackageResource(t,
+		"pfsense_services_freeradius_mac", "pfSense-pkg-freeradius3", freeradiusMACSingular,
+		map[string]any{
+			"mac":         "00:11:22:33:44:55",
+			"description": "tftest probe",
+		},
+	)
+}
+
+func TestAccServicesFreeRADIUSUserResourceLive(t *testing.T) {
+	testAccSkipUncoveredPackageResource(t,
+		"pfsense_services_freeradius_user", "pfSense-pkg-freeradius3", freeradiusUserSingular,
+		map[string]any{
+			"username":            "tftest_probe_user",
+			"password":            "tftest-Probe-Passw0rd",
+			"password_encryption": "Cleartext-Password",
+			"description":         "tftest probe",
+		},
+	)
+}
+
+func TestAccServicesServiceWatchdogResourceLive(t *testing.T) {
+	testAccSkipUncoveredPackageResource(t,
+		"pfsense_services_service_watchdog", "pfSense-pkg-Service_Watchdog", serviceWatchdogSingular,
+		map[string]any{
+			"name":   "syslogd",
+			"notify": false,
+		},
+	)
 }
