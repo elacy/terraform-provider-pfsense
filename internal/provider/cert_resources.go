@@ -256,13 +256,21 @@ func (r *systemCertificateResource) Create(ctx context.Context, req resource.Cre
 		resp.Diagnostics.AddError("failed to create certificate", err.Error())
 		return
 	}
-	var created map[string]any
-	if err := json.Unmarshal(raw, &created); err == nil {
-		if refid := getString(created, "refid"); refid != nil {
-			plan.RefID = types.StringValue(*refid)
-			plan.ID = types.StringValue(*refid)
-		}
+	// Every computed attribute is assigned by the system, so decode them from the
+	// create response: leaving one unknown fails the apply.
+	created, err := decodeObject(raw)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to create certificate", err.Error())
+		return
 	}
+	if refid := getString(created, "refid"); refid != nil {
+		plan.RefID = types.StringValue(*refid)
+		plan.ID = types.StringValue(*refid)
+	}
+	plan.CA = strValue(getString(created, "caref"))
+	plan.CSR = strValue(getString(created, "csr"))
+	plan.ValidFrom = strValue(getString(created, "valid_from"))
+	plan.ValidUntil = strValue(getString(created, "valid_until"))
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 

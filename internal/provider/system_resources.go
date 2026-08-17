@@ -82,10 +82,19 @@ func (r *systemUserResource) Create(ctx context.Context, req resource.CreateRequ
 	setStringList(payload, "cert", plan.Cert)
 	setString(payload, "authorizedkeys", plan.AuthorizedKeys)
 	setString(payload, "ipsecpsk", plan.IPsecPSK)
-	if _, err := r.client.Create(ctx, systemUserSingular, payload); err != nil {
+	raw, err := r.client.Create(ctx, systemUserSingular, payload)
+	if err != nil {
 		resp.Diagnostics.AddError("failed to create user", err.Error())
 		return
 	}
+	// `uid` is assigned by the system; decode it from the create response so the
+	// computed attribute is known when the apply finishes.
+	obj, err := decodeObject(raw)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to create user", err.Error())
+		return
+	}
+	plan.UID = intValue(getInt(obj, "uid"))
 	plan.ID = plan.Name
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
@@ -150,10 +159,19 @@ func (r *systemUserResource) Update(ctx context.Context, req resource.UpdateRequ
 	setStringList(payload, "cert", plan.Cert)
 	setString(payload, "authorizedkeys", plan.AuthorizedKeys)
 	setString(payload, "ipsecpsk", plan.IPsecPSK)
-	if _, err := r.client.Update(ctx, systemUserSingular, payload); err != nil {
+	raw, err := r.client.Update(ctx, systemUserSingular, payload)
+	if err != nil {
 		resp.Diagnostics.AddError("failed to update user", err.Error())
 		return
 	}
+	// Computed attributes are planned as unknown whenever a resource changes, so
+	// `uid` has to be read back out of the update response as well.
+	obj, err := decodeObject(raw)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to update user", err.Error())
+		return
+	}
+	plan.UID = intValue(getInt(obj, "uid"))
 	plan.ID = types.StringValue(name)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
@@ -245,10 +263,19 @@ func (r *systemGroupResource) Create(ctx context.Context, req resource.CreateReq
 	setString(payload, "description", plan.Description)
 	setStringList(payload, "member", plan.Member)
 	setStringList(payload, "priv", plan.Priv)
-	if _, err := r.client.Create(ctx, systemGroupSingular, payload); err != nil {
+	raw, err := r.client.Create(ctx, systemGroupSingular, payload)
+	if err != nil {
 		resp.Diagnostics.AddError("failed to create group", err.Error())
 		return
 	}
+	// `gid` is assigned by the system; decode it from the create response so the
+	// computed attribute is known when the apply finishes.
+	obj, err := decodeObject(raw)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to create group", err.Error())
+		return
+	}
+	plan.GID = intValue(getInt(obj, "gid"))
 	plan.ID = plan.Name
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
@@ -306,10 +333,19 @@ func (r *systemGroupResource) Update(ctx context.Context, req resource.UpdateReq
 	setString(payload, "description", plan.Description)
 	setStringList(payload, "member", plan.Member)
 	setStringList(payload, "priv", plan.Priv)
-	if _, err := r.client.Update(ctx, systemGroupSingular, payload); err != nil {
+	raw, err := r.client.Update(ctx, systemGroupSingular, payload)
+	if err != nil {
 		resp.Diagnostics.AddError("failed to update group", err.Error())
 		return
 	}
+	// Computed attributes are planned as unknown whenever a resource changes, so
+	// `gid` has to be read back out of the update response as well.
+	obj, err := decodeObject(raw)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to update group", err.Error())
+		return
+	}
+	plan.GID = intValue(getInt(obj, "gid"))
 	plan.ID = types.StringValue(name)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
