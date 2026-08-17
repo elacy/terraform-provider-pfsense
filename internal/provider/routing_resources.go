@@ -248,8 +248,8 @@ var _ resource.ResourceWithConfigure = (*routingGatewayGroupResource)(nil)
 var _ resource.ResourceWithImportState = (*routingGatewayGroupResource)(nil)
 
 const (
-	routingGatewayGroupPlural   = "/api/v2/routing/gateway_groups"
-	routingGatewayGroupSingular = "/api/v2/routing/gateway_group"
+	routingGatewayGroupPlural   = "/api/v2/routing/gateway/groups"
+	routingGatewayGroupSingular = "/api/v2/routing/gateway/group"
 )
 
 type gatewayGroupPriorityModel struct {
@@ -286,7 +286,7 @@ func (r *routingGatewayGroupResource) Schema(_ context.Context, _ resource.Schem
 		Attributes: map[string]schema.Attribute{
 			"id":      computedIDAttribute(),
 			"name":    requiredNameAttribute(),
-			"trigger": enumAttribute("Group trigger level: down, packetloss, latency or loss.", "down", "packetloss", "latency", "loss"),
+			"trigger": enumAttribute("Group trigger level: down, downloss, downlatency or downlosslatency.", "down", "downloss", "downlatency", "downlosslatency"),
 			"descr":   optionalStringAttribute("Description for this gateway group."),
 			"priorities": schema.ListNestedAttribute{
 				Required:    true,
