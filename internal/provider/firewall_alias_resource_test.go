@@ -130,6 +130,7 @@ func TestAccFirewallAliasResource(t *testing.T) {
 	defer srv.Close()
 
 	resource.Test(t, resource.TestCase{
+		IsUnitTest:               true,
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
@@ -182,6 +183,7 @@ func TestAccFirewallAliasesDataSource(t *testing.T) {
 	defer srv.Close()
 
 	resource.Test(t, resource.TestCase{
+		IsUnitTest:               true,
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
