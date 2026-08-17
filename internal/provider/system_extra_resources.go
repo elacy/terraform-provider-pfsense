@@ -56,7 +56,14 @@ func (r *systemCRLResource) Schema(_ context.Context, _ resource.SchemaRequest, 
 			"descr":    keyAttribute("The unique name/description for this CRL. Immutable after creation."),
 			"method":   requiredEnumAttribute("The method used to generate this CRL.", "existing", "internal"),
 			"lifetime": optionalIntAttribute("The lifetime of this CRL in days (`method` must be `internal`)."),
-			"serial":   optionalIntAttribute("The serial number of this CRL (`method` must be `internal`)."),
+			// The system regenerates an internal CRL on every write and bumps the
+			// serial number as it does, so the value only ever seeds the first
+			// revision and is system-managed from then on.
+			"serial": schema.Int64Attribute{
+				Optional:    true,
+				Computed:    true,
+				Description: "The serial number of this CRL (`method` must be `internal`). Seeds the first revision; the system increments it each time it regenerates the CRL.",
+			},
 			// An internal CRL is generated (and signed) by the system, which
 			// returns the resulting x509 data here, so the attribute has to be
 			// computed as well as settable for `method = "existing"`.
@@ -96,18 +103,25 @@ func (r *systemCRLResource) Create(ctx context.Context, req resource.CreateReque
 		resp.Diagnostics.AddError("failed to create CRL", err.Error())
 		return
 	}
-	plan.Refid = strValue(getString(obj, "refid"))
-	r.setGeneratedText(obj, &plan)
+	r.setComputed(obj, &plan)
 	plan.ID = types.StringValue(plan.Descr.ValueString())
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
-// setGeneratedText fills in the CRL data the system generated for us. It only
-// applies when the configuration left `text` unset (an internal CRL): a
-// configured value must be echoed back unchanged.
-func (r *systemCRLResource) setGeneratedText(obj map[string]any, m *systemCRLModel) {
+// setComputed fills in the attributes the system assigns from a create or update
+// response. `refid` is computed outright, so it is always taken from the
+// response. `text` and `serial` are settable as well as computed: a value the
+// plan carries has to be echoed back unchanged, so only a value the plan left
+// unknown — an internal CRL, whose data and serial the system generates — is
+// filled in here. A serial the system bumped behind a planned value is picked up
+// by the next refresh.
+func (r *systemCRLResource) setComputed(obj map[string]any, m *systemCRLModel) {
+	m.Refid = strValue(getString(obj, "refid"))
 	if m.Text.IsNull() || m.Text.IsUnknown() {
 		m.Text = strValue(getString(obj, "text"))
+	}
+	if m.Serial.IsNull() || m.Serial.IsUnknown() {
+		m.Serial = intValue(getInt(obj, "serial"))
 	}
 }
 
@@ -162,10 +176,19 @@ func (r *systemCRLResource) Update(ctx context.Context, req resource.UpdateReque
 	}
 	payload := r.payload(plan)
 	payload["id"] = id
-	if _, err := r.client.Update(ctx, systemCRLSingular, payload); err != nil {
+	raw, err := r.client.Update(ctx, systemCRLSingular, payload)
+	if err != nil {
 		resp.Diagnostics.AddError("failed to update CRL", err.Error())
 		return
 	}
+	// The plan leaves the computed attributes unknown, so they have to come back
+	// out of the update response before the state is written.
+	obj, err := decodeObject(raw)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to update CRL", err.Error())
+		return
+	}
+	r.setComputed(obj, &plan)
 	plan.ID = types.StringValue(descr)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
@@ -840,10 +863,19 @@ func (r *userAuthServerResource) Update(ctx context.Context, req resource.Update
 	}
 	payload := r.payload(plan, false)
 	payload["id"] = id
-	if _, err := r.client.Update(ctx, userAuthServerSingular, payload); err != nil {
+	raw, err := r.client.Update(ctx, userAuthServerSingular, payload)
+	if err != nil {
 		resp.Diagnostics.AddError("failed to update authentication server", err.Error())
 		return
 	}
+	// `refid` is computed, so the plan leaves it unknown; the update response
+	// reports the value the system assigned at create time.
+	obj, err := decodeObject(raw)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to update authentication server", err.Error())
+		return
+	}
+	plan.Refid = strValue(getString(obj, "refid"))
 	plan.ID = types.StringValue(name)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }

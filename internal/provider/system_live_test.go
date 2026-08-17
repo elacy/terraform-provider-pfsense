@@ -406,9 +406,10 @@ func TestAccSystemUserResourceLive(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // The built-in `all` and `admins` groups (which carry admin's privileges) are
-// never touched; the test creates its own local group.
+// never touched; the test creates its own local group. A local-scope group name
+// may not exceed 16 characters, so the throwaway name is abbreviated.
 const (
-	testAccLiveGroupName  = "tftest_live_group"
+	testAccLiveGroupName  = "tftest_grp"
 	testAccLiveGroupDescr = "tftest_live_group"
 )
 
@@ -695,6 +696,10 @@ func TestAccSystemCertificateResourceLive(t *testing.T) {
 // An internal CRL has to be signed by a CA that holds a private key, so the
 // config brings its own throwaway CA rather than pointing at anything already on
 // the box. Terraform tears the CRL down before the CA it depends on.
+//
+// `serial` is deliberately left out of the configuration: the box regenerates an
+// internal CRL on every write and increments the serial as it does, so a pinned
+// value would leave a diff that never settles.
 const (
 	testAccLiveCRLDescr   = "tftest_live_crl"
 	testAccLiveCRLCADescr = "tftest_live_crl_ca"
@@ -710,7 +715,6 @@ resource "pfsense_system_crl" "live" {
   descr    = %q
   method   = "internal"
   lifetime = %d
-  serial   = 0
 }
 `, testAccLiveCRLDescr, lifetime)
 }
@@ -735,7 +739,8 @@ func TestAccSystemCRLResourceLive(t *testing.T) {
 					resource.TestCheckResourceAttr("pfsense_system_crl.live", "descr", testAccLiveCRLDescr),
 					resource.TestCheckResourceAttr("pfsense_system_crl.live", "method", "internal"),
 					resource.TestCheckResourceAttr("pfsense_system_crl.live", "lifetime", "730"),
-					resource.TestCheckResourceAttr("pfsense_system_crl.live", "serial", "0"),
+					// The serial is seeded and then maintained by the box.
+					resource.TestCheckResourceAttrSet("pfsense_system_crl.live", "serial"),
 					resource.TestCheckResourceAttrSet("pfsense_system_crl.live", "refid"),
 					resource.TestCheckResourceAttrPair("pfsense_system_crl.live", "caref", "pfsense_system_ca.crl_ca", "refid"),
 					// An internal CRL is generated and signed by the box, which
@@ -797,7 +802,12 @@ resource "pfsense_system_crl" "revoke_crl" {
   descr    = %q
   method   = "internal"
   lifetime = 730
-  serial   = 0
+
+  # The CRL and the certificate are applied in parallel by Terraform (neither
+  # depends on the other), and two concurrent writes to the pfSense config can
+  # race and drop one of them. Serialize the CRL after the certificate so the
+  # CRL is durable before the child resource resolves its parent.
+  depends_on = [pfsense_system_certificate.revoke_cert]
 }
 
 resource "pfsense_system_crl_revoked_certificate" "live" {
