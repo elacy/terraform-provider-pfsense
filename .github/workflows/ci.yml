@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Serialize per-ref so overlapping runs don't step on each other (especially the
+# live job, which mutates a shared pfSense box). We never cancel the in-flight
+# run — a half-finished live test can leave a throwaway alias behind.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # Hermetic build + unit tests. Runs on GitHub-hosted runners for every push
+  # and pull request. Never talks to a real pfSense box: the live acceptance
+  # tests self-skip here because TF_ACC is unset, so only the mock-backed tests
+  # in internal/provider run.
+  hermetic:
+    name: Build + unit tests (hermetic)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.6'
+          cache: true
+      - name: gofmt (must be clean)
+        run: test -z "$(gofmt -l .)"
+      - name: go vet
+        run: go vet ./...
+      - name: go build
+        run: go build ./...
+      - name: go test (mock-backed)
+        run: go test ./...
+
+  # Live acceptance tests against the real pfSense box, on the self-hosted
+  # runner (the `pfsense-runner` custom app on the NAS). These tests mutate the
+  # box (create/update/import/destroy a throwaway alias), so the job is opt-in:
+  # manual `workflow_dispatch` or a post-merge push to main only.
+  #
+  # SECURITY: a self-hosted runner executes the repo's code. It must therefore
+  # NEVER run on `pull_request` — otherwise anyone who opens a PR against this
+  # public repo could run arbitrary code on the NAS. Keeping it to dispatch +
+  # push-to-main means only maintainers with write access can reach it.
+  live:
+    name: Live acceptance tests (pfSense)
+    runs-on: [self-hosted, pfsense]
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    env:
+      TF_ACC: '1'
+      PFSENSE_URL: ${{ secrets.PFSENSE_URL }}
+      PFSENSE_USERNAME: ${{ secrets.PFSENSE_USERNAME }}
+      PFSENSE_PASSWORD: ${{ secrets.PFSENSE_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.6'
+          cache: true
+      - name: go test (live, TF_ACC)
+        # TF_ACC=1 flips the live acceptance tests on; the mock-backed tests
+        # also run but are unaffected (they never consult TF_ACC). Equivalent to
+        # `make testacc`, so any live test the repo adds is picked up regardless
+        # of its name.
+        run: go test ./... -v -timeout 120m
