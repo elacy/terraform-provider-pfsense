@@ -151,10 +151,20 @@ func (r *firewallNATPortForwardResource) Create(ctx context.Context, req resourc
 	setString(payload, "descr", plan.Descr)
 	setString(payload, "natreflection", plan.NATReflection)
 	setString(payload, "associated_rule_id", plan.AssociatedRuleID)
-	if _, err := r.client.Create(ctx, firewallNATPortForwardSingular, applyNow(payload)); err != nil {
+	raw, err := r.client.Create(ctx, firewallNATPortForwardSingular, applyNow(payload))
+	if err != nil {
 		resp.Diagnostics.AddError("failed to create port forward rule", err.Error())
 		return
 	}
+	obj, err := decodeObject(raw)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to create port forward rule", err.Error())
+		return
+	}
+	plan.CreatedTime = intValue(getInt(obj, "created_time"))
+	plan.CreatedBy = strValue(getString(obj, "created_by"))
+	plan.UpdatedTime = intValue(getInt(obj, "updated_time"))
+	plan.UpdatedBy = strValue(getString(obj, "updated_by"))
 	plan.ID = types.StringValue(r.key(plan.Interface.ValueString(), plan.Protocol.ValueString(), plan.Destination.ValueString(), plan.Target.ValueString()))
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
@@ -244,10 +254,20 @@ func (r *firewallNATPortForwardResource) Update(ctx context.Context, req resourc
 	setString(payload, "descr", plan.Descr)
 	setString(payload, "natreflection", plan.NATReflection)
 	setString(payload, "associated_rule_id", plan.AssociatedRuleID)
-	if _, err := r.client.Update(ctx, firewallNATPortForwardSingular, applyNow(payload)); err != nil {
+	raw, err := r.client.Update(ctx, firewallNATPortForwardSingular, applyNow(payload))
+	if err != nil {
 		resp.Diagnostics.AddError("failed to update port forward rule", err.Error())
 		return
 	}
+	obj, err := decodeObject(raw)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to update port forward rule", err.Error())
+		return
+	}
+	plan.CreatedTime = intValue(getInt(obj, "created_time"))
+	plan.CreatedBy = strValue(getString(obj, "created_by"))
+	plan.UpdatedTime = intValue(getInt(obj, "updated_time"))
+	plan.UpdatedBy = strValue(getString(obj, "updated_by"))
 	plan.ID = types.StringValue(r.key(iface, protocol, destination, target))
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
