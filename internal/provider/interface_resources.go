@@ -140,15 +140,22 @@ func (r *networkInterfaceResource) Schema(_ context.Context, _ resource.SchemaRe
 					stringvalidator.OneOf("staticv6", "dhcp6", "slaac", "6rd", "track6", "6to4", "none"),
 				},
 			},
-			"ipaddrv6":             requiredStringAttribute("IPv6 address (used when `typev6` is `staticv6`)."),
-			"subnetv6":             schema.Int64Attribute{Required: true, Description: "IPv6 subnet bit count (used when `typev6` is `staticv6`)."},
+			// The IPv6 addressing attributes below are optional because pfSense
+			// only stores each one under the matching `typev6` mode and reports
+			// the rest as null: `staticv6` keeps `ipaddrv6`/`subnetv6`, `6rd`
+			// keeps the `prefix_6rd` triple, `track6` keeps `track6_interface`.
+			// Marking any of them required would force a config to send values
+			// the API discards, and every apply would then leave a permanent
+			// diff. Supply only the ones the chosen `typev6` mode uses.
+			"ipaddrv6":             optionalStringAttribute("IPv6 address (used when `typev6` is `staticv6`)."),
+			"subnetv6":             optionalIntAttribute("IPv6 subnet bit count (used when `typev6` is `staticv6`)."),
 			"gatewayv6":            optionalStringAttribute("Optional IPv6 gateway (gateway name)."),
 			"ipv6usev4iface":       optionalBoolAttribute("Use IPv4 gateway as the IPv6 gateway."),
 			"slaacusev4iface":      optionalBoolAttribute("Use IPv4 gateway as the IPv6 SLAAC gateway."),
-			"prefix_6rd":           requiredStringAttribute("6rd prefix (used when `typev6` is `6rd`)."),
-			"gateway_6rd":          requiredStringAttribute("6rd gateway address (used when `typev6` is `6rd`)."),
-			"prefix_6rd_v4plen":    schema.Int64Attribute{Required: true, Description: "6rd IPv4 prefix length (used when `typev6` is `6rd`)."},
-			"track6_interface":     requiredStringAttribute("Interface to track for IPv6 (used when `typev6` is `track6`)."),
+			"prefix_6rd":           optionalStringAttribute("6rd prefix (used when `typev6` is `6rd`)."),
+			"gateway_6rd":          optionalStringAttribute("6rd gateway address (used when `typev6` is `6rd`)."),
+			"prefix_6rd_v4plen":    optionalIntAttribute("6rd IPv4 prefix length (used when `typev6` is `6rd`)."),
+			"track6_interface":     optionalStringAttribute("Interface to track for IPv6 (used when `typev6` is `track6`)."),
 			"track6_prefix_id_hex": optionalStringAttribute("IPv6 prefix ID in hex (used when `typev6` is `track6`)."),
 		},
 	}
@@ -440,10 +447,17 @@ func (r *interfaceBridgeResource) Create(ctx context.Context, req resource.Creat
 	setStringList(payload, "members", plan.Members)
 	setString(payload, "descr", plan.Descr)
 	applyNow(payload)
-	if _, err := r.client.Create(ctx, interfaceBridgeSingular, payload); err != nil {
+	raw, err := r.client.Create(ctx, interfaceBridgeSingular, payload)
+	if err != nil {
 		resp.Diagnostics.AddError("failed to create interface bridge", err.Error())
 		return
 	}
+	obj, err := decodeObject(raw)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to create interface bridge", err.Error())
+		return
+	}
+	plan.Bridgeif = strValue(getString(obj, "bridgeif"))
 	plan.ID = plan.Descr
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
@@ -497,10 +511,17 @@ func (r *interfaceBridgeResource) Update(ctx context.Context, req resource.Updat
 	setStringList(payload, "members", plan.Members)
 	setString(payload, "descr", plan.Descr)
 	applyNow(payload)
-	if _, err := r.client.Update(ctx, interfaceBridgeSingular, payload); err != nil {
+	raw, err := r.client.Update(ctx, interfaceBridgeSingular, payload)
+	if err != nil {
 		resp.Diagnostics.AddError("failed to update interface bridge", err.Error())
 		return
 	}
+	obj, err := decodeObject(raw)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to update interface bridge", err.Error())
+		return
+	}
+	plan.Bridgeif = strValue(getString(obj, "bridgeif"))
 	plan.ID = types.StringValue(descr)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
@@ -614,10 +635,17 @@ func (r *interfaceGREResource) Create(ctx context.Context, req resource.CreateRe
 	setString(payload, "tunnel_remote_addr6", plan.TunnelRemoteAddr6)
 	setInt(payload, "tunnel_remote_net6", plan.TunnelRemoteNet6)
 	applyNow(payload)
-	if _, err := r.client.Create(ctx, interfaceGRESingular, payload); err != nil {
+	raw, err := r.client.Create(ctx, interfaceGRESingular, payload)
+	if err != nil {
 		resp.Diagnostics.AddError("failed to create GRE interface", err.Error())
 		return
 	}
+	obj, err := decodeObject(raw)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to create GRE interface", err.Error())
+		return
+	}
+	plan.Greif = strValue(getString(obj, "greif"))
 	plan.ID = plan.If
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
@@ -687,10 +715,17 @@ func (r *interfaceGREResource) Update(ctx context.Context, req resource.UpdateRe
 	setString(payload, "tunnel_remote_addr6", plan.TunnelRemoteAddr6)
 	setInt(payload, "tunnel_remote_net6", plan.TunnelRemoteNet6)
 	applyNow(payload)
-	if _, err := r.client.Update(ctx, interfaceGRESingular, payload); err != nil {
+	raw, err := r.client.Update(ctx, interfaceGRESingular, payload)
+	if err != nil {
 		resp.Diagnostics.AddError("failed to update GRE interface", err.Error())
 		return
 	}
+	obj, err := decodeObject(raw)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to update GRE interface", err.Error())
+		return
+	}
+	plan.Greif = strValue(getString(obj, "greif"))
 	plan.ID = types.StringValue(iface)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
@@ -802,10 +837,17 @@ func (r *interfaceLAGGResource) Create(ctx context.Context, req resource.CreateR
 	setString(payload, "lagghash", plan.Lagghash)
 	setString(payload, "failovermaster", plan.Failovermaster)
 	applyNow(payload)
-	if _, err := r.client.Create(ctx, interfaceLAGGSingular, payload); err != nil {
+	raw, err := r.client.Create(ctx, interfaceLAGGSingular, payload)
+	if err != nil {
 		resp.Diagnostics.AddError("failed to create LAGG interface", err.Error())
 		return
 	}
+	obj, err := decodeObject(raw)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to create LAGG interface", err.Error())
+		return
+	}
+	plan.Laggif = strValue(getString(obj, "laggif"))
 	plan.ID = plan.Descr
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
@@ -867,10 +909,17 @@ func (r *interfaceLAGGResource) Update(ctx context.Context, req resource.UpdateR
 	setString(payload, "lagghash", plan.Lagghash)
 	setString(payload, "failovermaster", plan.Failovermaster)
 	applyNow(payload)
-	if _, err := r.client.Update(ctx, interfaceLAGGSingular, payload); err != nil {
+	raw, err := r.client.Update(ctx, interfaceLAGGSingular, payload)
+	if err != nil {
 		resp.Diagnostics.AddError("failed to update LAGG interface", err.Error())
 		return
 	}
+	obj, err := decodeObject(raw)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to update LAGG interface", err.Error())
+		return
+	}
+	plan.Laggif = strValue(getString(obj, "laggif"))
 	plan.ID = types.StringValue(descr)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
