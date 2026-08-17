@@ -121,6 +121,53 @@ func (c testAccLiveChild) checkAbsent() resource.TestCheckFunc {
 	}
 }
 
+// testAccLiveComposite identifies an object whose natural key spans several
+// fields — a DNS override's host and domain, say — and resolves it the way the
+// composite-key resources do. `label` is the rendered key, used in messages.
+type testAccLiveComposite struct {
+	kind    string
+	plural  string
+	filters map[string]string
+	label   string
+}
+
+func (o testAccLiveComposite) exists() (bool, error) {
+	client, err := testAccClient()
+	if err != nil {
+		return false, fmt.Errorf("building verification client: %w", err)
+	}
+	_, _, found, err := findByKeys(context.Background(), client, o.plural, o.filters)
+	if err != nil {
+		return false, fmt.Errorf("looking up %s %q: %w", o.kind, o.label, err)
+	}
+	return found, nil
+}
+
+func (o testAccLiveComposite) preCheckAbsent(t *testing.T) {
+	t.Helper()
+
+	found, err := o.exists()
+	if err != nil {
+		t.Fatalf("checking %s %q does not already exist: %v", o.kind, o.label, err)
+	}
+	if found {
+		t.Fatalf("%s %q already exists on the box; remove it before running the live test", o.kind, o.label)
+	}
+}
+
+func (o testAccLiveComposite) checkAbsent() resource.TestCheckFunc {
+	return func(*terraform.State) error {
+		found, err := o.exists()
+		if err != nil {
+			return fmt.Errorf("checking %s %q was destroyed: %w", o.kind, o.label, err)
+		}
+		if found {
+			return fmt.Errorf("%s %q still exists after destroy", o.kind, o.label)
+		}
+		return nil
+	}
+}
+
 // ---------------------------------------------------------------------------
 // pfsense_services_dhcp_server
 // ---------------------------------------------------------------------------
@@ -536,6 +583,449 @@ func TestAccServicesDHCPCustomOptionResourceLive(t *testing.T) {
 				ResourceName:      "pfsense_services_dhcp_custom_option.live",
 				ImportState:       true,
 				ImportStateId:     testAccLiveDHCPInterface + "|114",
+				ImportStateVerify: true,
+			},
+		},
+	})
+}
+
+// ---------------------------------------------------------------------------
+// pfsense_services_dns_resolver_host_override
+// ---------------------------------------------------------------------------
+
+// A host override is keyed by host and domain. The override resolves a
+// `tftest_`-marked hostname under example.com (RFC 2606) to a documentation
+// address (RFC 5737), so it can only ever shadow a name that does not resolve to
+// anything real. The resolver's own settings are never touched.
+const (
+	testAccLiveResolverOverrideHost   = "tftest-live-resolver"
+	testAccLiveResolverOverrideDomain = "example.com"
+	testAccLiveResolverOverrideIP     = "192.0.2.10"
+	testAccLiveResolverOverrideDescr  = "tftest_live_resolver_host_override"
+)
+
+var testAccLiveResolverOverrideObject = testAccLiveComposite{
+	kind:    "DNS resolver host override",
+	plural:  dnsResolverHostOverridePlural,
+	filters: map[string]string{"host": testAccLiveResolverOverrideHost, "domain": testAccLiveResolverOverrideDomain},
+	label:   testAccLiveResolverOverrideHost + "|" + testAccLiveResolverOverrideDomain,
+}
+
+// testAccLiveAliasIgnoreLifecycle is the lifecycle block the two alias tests put
+// on their parent override. The API reports an alias inside its parent's own
+// `aliases` collection, so a parent that managed the field would plan a diff
+// against the child resource on every refresh.
+const testAccLiveAliasIgnoreLifecycle = `
+  lifecycle {
+    ignore_changes = [aliases]
+  }
+`
+
+// testAccServicesDNSResolverHostOverrideBlock renders one host override.
+// `aliases` is deliberately left out of the configuration: the API reports it as
+// null while the override has none, and a resource that managed it would fight
+// the alias child resource for the same collection. `extra` carries per-test
+// additions such as a lifecycle block.
+func testAccServicesDNSResolverHostOverrideBlock(label, host, ip, descr, extra string) string {
+	return fmt.Sprintf(`
+resource "pfsense_services_dns_resolver_host_override" %q {
+  host   = %q
+  domain = %q
+  ip     = [%q]
+  descr  = %q
+%s}
+`, label, host, testAccLiveResolverOverrideDomain, ip, descr, extra)
+}
+
+func testAccServicesDNSResolverHostOverrideLiveConfig(ip, descr string) string {
+	return testAccProviderConfig() +
+		testAccServicesDNSResolverHostOverrideBlock("live", testAccLiveResolverOverrideHost, ip, descr, "")
+}
+
+func TestAccServicesDNSResolverHostOverrideResourceLive(t *testing.T) {
+	resource.Test(t, resource.TestCase{
+		PreCheck: func() {
+			testAccPreCheck(t)
+			testAccLiveResolverOverrideObject.preCheckAbsent(t)
+		},
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		CheckDestroy:             testAccLiveResolverOverrideObject.checkAbsent(),
+		Steps: []resource.TestStep{
+			{
+				Config: testAccServicesDNSResolverHostOverrideLiveConfig(testAccLiveResolverOverrideIP, testAccLiveResolverOverrideDescr),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("pfsense_services_dns_resolver_host_override.live", "id", testAccLiveResolverOverrideObject.label),
+					resource.TestCheckResourceAttr("pfsense_services_dns_resolver_host_override.live", "host", testAccLiveResolverOverrideHost),
+					resource.TestCheckResourceAttr("pfsense_services_dns_resolver_host_override.live", "domain", testAccLiveResolverOverrideDomain),
+					resource.TestCheckResourceAttr("pfsense_services_dns_resolver_host_override.live", "ip.#", "1"),
+					resource.TestCheckResourceAttr("pfsense_services_dns_resolver_host_override.live", "ip.0", testAccLiveResolverOverrideIP),
+					resource.TestCheckResourceAttr("pfsense_services_dns_resolver_host_override.live", "descr", testAccLiveResolverOverrideDescr),
+				),
+			},
+			{
+				// Both key components (host and domain) are unchanged, so this is an
+				// in-place update; the address and the description move.
+				Config: testAccServicesDNSResolverHostOverrideLiveConfig("192.0.2.11", testAccLiveResolverOverrideDescr+" (updated)"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("pfsense_services_dns_resolver_host_override.live", "id", testAccLiveResolverOverrideObject.label),
+					resource.TestCheckResourceAttr("pfsense_services_dns_resolver_host_override.live", "ip.0", "192.0.2.11"),
+					resource.TestCheckResourceAttr("pfsense_services_dns_resolver_host_override.live", "descr", testAccLiveResolverOverrideDescr+" (updated)"),
+				),
+			},
+			{
+				// The import ID is the host and the domain, joined by a pipe.
+				ResourceName:      "pfsense_services_dns_resolver_host_override.live",
+				ImportState:       true,
+				ImportStateId:     testAccLiveResolverOverrideObject.label,
+				ImportStateVerify: true,
+			},
+		},
+	})
+}
+
+// ---------------------------------------------------------------------------
+// pfsense_services_dns_resolver_host_override_alias
+// ---------------------------------------------------------------------------
+
+// The alias hangs off its own throwaway host override rather than the one the
+// test above manages, so the two tests cannot collide.
+const (
+	testAccLiveResolverAliasParentHost = "tftest-live-resolver-parent"
+	testAccLiveResolverAliasHost       = "tftest-live-resolver-alias"
+	testAccLiveResolverAliasDescr      = "tftest_live_resolver_host_override_alias"
+)
+
+var (
+	testAccLiveResolverAliasParentKey = testAccLiveResolverAliasParentHost + "|" + testAccLiveResolverOverrideDomain
+
+	testAccLiveResolverAliasParentObject = testAccLiveComposite{
+		kind:    "DNS resolver host override",
+		plural:  dnsResolverHostOverridePlural,
+		filters: map[string]string{"host": testAccLiveResolverAliasParentHost, "domain": testAccLiveResolverOverrideDomain},
+		label:   testAccLiveResolverAliasParentKey,
+	}
+
+	testAccLiveResolverAliasChild = testAccLiveChild{
+		kind:          "DNS resolver host override alias",
+		parentPlural:  dnsResolverHostOverrideParentPlural,
+		parentFilters: map[string]string{"host": testAccLiveResolverAliasParentHost, "domain": testAccLiveResolverOverrideDomain},
+		childPlural:   dnsResolverHostOverrideAliasPlural,
+		keyField:      "host",
+		keyValue:      testAccLiveResolverAliasHost,
+	}
+)
+
+func testAccServicesDNSResolverHostOverrideAliasLiveConfig(descr string) string {
+	return testAccProviderConfig() +
+		testAccServicesDNSResolverHostOverrideBlock(
+			"alias_parent",
+			testAccLiveResolverAliasParentHost,
+			testAccLiveResolverOverrideIP,
+			"tftest_live_resolver_alias_parent",
+			testAccLiveAliasIgnoreLifecycle,
+		) +
+		fmt.Sprintf(`
+resource "pfsense_services_dns_resolver_host_override_alias" "live" {
+  parent_id = "${pfsense_services_dns_resolver_host_override.alias_parent.host}|${pfsense_services_dns_resolver_host_override.alias_parent.domain}"
+  host      = %q
+  domain    = %q
+  descr     = %q
+}
+`, testAccLiveResolverAliasHost, testAccLiveResolverOverrideDomain, descr)
+}
+
+func TestAccServicesDNSResolverHostOverrideAliasResourceLive(t *testing.T) {
+	resource.Test(t, resource.TestCase{
+		PreCheck: func() {
+			testAccPreCheck(t)
+			testAccLiveResolverAliasParentObject.preCheckAbsent(t)
+			testAccLiveResolverAliasChild.preCheckAbsent(t)
+		},
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		CheckDestroy: testAccCheckLiveObjectsAbsent(
+			testAccLiveResolverAliasChild.checkAbsent(),
+			testAccLiveResolverAliasParentObject.checkAbsent(),
+		),
+		Steps: []resource.TestStep{
+			{
+				Config: testAccServicesDNSResolverHostOverrideAliasLiveConfig(testAccLiveResolverAliasDescr),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr(
+						"pfsense_services_dns_resolver_host_override_alias.live", "id",
+						testAccLiveResolverAliasParentKey+"|"+testAccLiveResolverAliasHost,
+					),
+					resource.TestCheckResourceAttr("pfsense_services_dns_resolver_host_override_alias.live", "parent_id", testAccLiveResolverAliasParentKey),
+					resource.TestCheckResourceAttr("pfsense_services_dns_resolver_host_override_alias.live", "host", testAccLiveResolverAliasHost),
+					resource.TestCheckResourceAttr("pfsense_services_dns_resolver_host_override_alias.live", "domain", testAccLiveResolverOverrideDomain),
+					resource.TestCheckResourceAttr("pfsense_services_dns_resolver_host_override_alias.live", "descr", testAccLiveResolverAliasDescr),
+				),
+			},
+			{
+				// The parent override and the alias hostname are unchanged, so this is
+				// an in-place update; only the description moves.
+				Config: testAccServicesDNSResolverHostOverrideAliasLiveConfig(testAccLiveResolverAliasDescr + " (updated)"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr(
+						"pfsense_services_dns_resolver_host_override_alias.live", "id",
+						testAccLiveResolverAliasParentKey+"|"+testAccLiveResolverAliasHost,
+					),
+					resource.TestCheckResourceAttr("pfsense_services_dns_resolver_host_override_alias.live", "descr", testAccLiveResolverAliasDescr+" (updated)"),
+				),
+			},
+			{
+				// The import ID is the parent's own key and the alias hostname, joined
+				// by pipes.
+				ResourceName:      "pfsense_services_dns_resolver_host_override_alias.live",
+				ImportState:       true,
+				ImportStateId:     testAccLiveResolverAliasParentKey + "|" + testAccLiveResolverAliasHost,
+				ImportStateVerify: true,
+			},
+		},
+	})
+}
+
+// ---------------------------------------------------------------------------
+// pfsense_services_dns_resolver_domain_override
+// ---------------------------------------------------------------------------
+
+// The domain override sends queries for one `tftest_`-marked subdomain of
+// example.com (RFC 2606) to a documentation-range nameserver (RFC 5737) that
+// does not exist. Nothing the box itself resolves lives under that domain, and
+// the resolver keeps answering everything else exactly as before.
+const (
+	testAccLiveDomainOverrideDomain = "tftest-live.example.com"
+	testAccLiveDomainOverrideIP     = "192.0.2.53"
+	testAccLiveDomainOverrideDescr  = "tftest_live_domain_override"
+)
+
+// testAccServicesDNSResolverDomainOverrideLiveConfig renders the override for
+// one step. `forward_tls_upstream` is pinned to the API default because the API
+// reports it on every read.
+func testAccServicesDNSResolverDomainOverrideLiveConfig(ip, descr string) string {
+	return testAccProviderConfig() + fmt.Sprintf(`
+resource "pfsense_services_dns_resolver_domain_override" "live" {
+  domain               = %q
+  ip                   = %q
+  descr                = %q
+  forward_tls_upstream = false
+}
+`, testAccLiveDomainOverrideDomain, ip, descr)
+}
+
+func TestAccServicesDNSResolverDomainOverrideResourceLive(t *testing.T) {
+	resource.Test(t, resource.TestCase{
+		PreCheck: func() {
+			testAccPreCheck(t)
+			testAccPreCheckLiveObjectAbsent(t, "DNS resolver domain override", dnsResolverDomainOverridePlural, "domain", testAccLiveDomainOverrideDomain)
+		},
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		CheckDestroy:             testAccCheckLiveObjectAbsent("DNS resolver domain override", dnsResolverDomainOverridePlural, "domain", testAccLiveDomainOverrideDomain),
+		Steps: []resource.TestStep{
+			{
+				Config: testAccServicesDNSResolverDomainOverrideLiveConfig(testAccLiveDomainOverrideIP, testAccLiveDomainOverrideDescr),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("pfsense_services_dns_resolver_domain_override.live", "id", testAccLiveDomainOverrideDomain),
+					resource.TestCheckResourceAttr("pfsense_services_dns_resolver_domain_override.live", "domain", testAccLiveDomainOverrideDomain),
+					resource.TestCheckResourceAttr("pfsense_services_dns_resolver_domain_override.live", "ip", testAccLiveDomainOverrideIP),
+					resource.TestCheckResourceAttr("pfsense_services_dns_resolver_domain_override.live", "descr", testAccLiveDomainOverrideDescr),
+					resource.TestCheckResourceAttr("pfsense_services_dns_resolver_domain_override.live", "forward_tls_upstream", "false"),
+				),
+			},
+			{
+				// `domain` (the natural key) is unchanged; the nameserver address and
+				// the description move.
+				Config: testAccServicesDNSResolverDomainOverrideLiveConfig("192.0.2.54", testAccLiveDomainOverrideDescr+" (updated)"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("pfsense_services_dns_resolver_domain_override.live", "id", testAccLiveDomainOverrideDomain),
+					resource.TestCheckResourceAttr("pfsense_services_dns_resolver_domain_override.live", "ip", "192.0.2.54"),
+					resource.TestCheckResourceAttr("pfsense_services_dns_resolver_domain_override.live", "descr", testAccLiveDomainOverrideDescr+" (updated)"),
+				),
+			},
+			{
+				ResourceName:      "pfsense_services_dns_resolver_domain_override.live",
+				ImportState:       true,
+				ImportStateId:     testAccLiveDomainOverrideDomain,
+				ImportStateVerify: true,
+			},
+		},
+	})
+}
+
+// ---------------------------------------------------------------------------
+// pfsense_services_dns_forwarder_host_override
+// ---------------------------------------------------------------------------
+
+// The forwarder (dnsmasq) is not the box's active resolver — unbound is — so
+// these entries are pure configuration. The test neither starts nor stops the
+// forwarder; it only adds and removes an override for a `tftest_`-marked
+// hostname under example.com pointing at a documentation address.
+const (
+	testAccLiveForwarderOverrideHost  = "tftest-live-forwarder"
+	testAccLiveForwarderOverrideIP    = "192.0.2.20"
+	testAccLiveForwarderOverrideDescr = "tftest_live_forwarder_host_override"
+)
+
+var testAccLiveForwarderOverrideObject = testAccLiveComposite{
+	kind:    "DNS forwarder host override",
+	plural:  dnsForwarderHostOverridePlural,
+	filters: map[string]string{"host": testAccLiveForwarderOverrideHost, "domain": testAccLiveResolverOverrideDomain},
+	label:   testAccLiveForwarderOverrideHost + "|" + testAccLiveResolverOverrideDomain,
+}
+
+// testAccServicesDNSForwarderHostOverrideBlock renders one forwarder override.
+// As with the resolver, `aliases` is left unmanaged so the alias child resource
+// owns that collection on its own.
+func testAccServicesDNSForwarderHostOverrideBlock(label, host, ip, descr, extra string) string {
+	return fmt.Sprintf(`
+resource "pfsense_services_dns_forwarder_host_override" %q {
+  host   = %q
+  domain = %q
+  ip     = %q
+  descr  = %q
+%s}
+`, label, host, testAccLiveResolverOverrideDomain, ip, descr, extra)
+}
+
+func testAccServicesDNSForwarderHostOverrideLiveConfig(ip, descr string) string {
+	return testAccProviderConfig() +
+		testAccServicesDNSForwarderHostOverrideBlock("live", testAccLiveForwarderOverrideHost, ip, descr, "")
+}
+
+func TestAccServicesDNSForwarderHostOverrideResourceLive(t *testing.T) {
+	resource.Test(t, resource.TestCase{
+		PreCheck: func() {
+			testAccPreCheck(t)
+			testAccLiveForwarderOverrideObject.preCheckAbsent(t)
+		},
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		CheckDestroy:             testAccLiveForwarderOverrideObject.checkAbsent(),
+		Steps: []resource.TestStep{
+			{
+				Config: testAccServicesDNSForwarderHostOverrideLiveConfig(testAccLiveForwarderOverrideIP, testAccLiveForwarderOverrideDescr),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("pfsense_services_dns_forwarder_host_override.live", "id", testAccLiveForwarderOverrideObject.label),
+					resource.TestCheckResourceAttr("pfsense_services_dns_forwarder_host_override.live", "host", testAccLiveForwarderOverrideHost),
+					resource.TestCheckResourceAttr("pfsense_services_dns_forwarder_host_override.live", "domain", testAccLiveResolverOverrideDomain),
+					resource.TestCheckResourceAttr("pfsense_services_dns_forwarder_host_override.live", "ip", testAccLiveForwarderOverrideIP),
+					resource.TestCheckResourceAttr("pfsense_services_dns_forwarder_host_override.live", "descr", testAccLiveForwarderOverrideDescr),
+				),
+			},
+			{
+				// Both key components (host and domain) are unchanged, so this is an
+				// in-place update; the address and the description move.
+				Config: testAccServicesDNSForwarderHostOverrideLiveConfig("192.0.2.21", testAccLiveForwarderOverrideDescr+" (updated)"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("pfsense_services_dns_forwarder_host_override.live", "id", testAccLiveForwarderOverrideObject.label),
+					resource.TestCheckResourceAttr("pfsense_services_dns_forwarder_host_override.live", "ip", "192.0.2.21"),
+					resource.TestCheckResourceAttr("pfsense_services_dns_forwarder_host_override.live", "descr", testAccLiveForwarderOverrideDescr+" (updated)"),
+				),
+			},
+			{
+				// The import ID is the host and the domain, joined by a pipe.
+				ResourceName:      "pfsense_services_dns_forwarder_host_override.live",
+				ImportState:       true,
+				ImportStateId:     testAccLiveForwarderOverrideObject.label,
+				ImportStateVerify: true,
+			},
+		},
+	})
+}
+
+// ---------------------------------------------------------------------------
+// pfsense_services_dns_forwarder_host_override_alias
+// ---------------------------------------------------------------------------
+
+// As with the resolver alias, the forwarder alias brings its own throwaway
+// parent override so the two forwarder tests cannot collide.
+const (
+	testAccLiveForwarderAliasParentHost = "tftest-live-forwarder-parent"
+	testAccLiveForwarderAliasHost       = "tftest-live-forwarder-alias"
+	testAccLiveForwarderAliasDescr      = "tftest_live_forwarder_host_override_alias"
+)
+
+var (
+	testAccLiveForwarderAliasParentKey = testAccLiveForwarderAliasParentHost + "|" + testAccLiveResolverOverrideDomain
+
+	testAccLiveForwarderAliasParentObject = testAccLiveComposite{
+		kind:    "DNS forwarder host override",
+		plural:  dnsForwarderHostOverridePlural,
+		filters: map[string]string{"host": testAccLiveForwarderAliasParentHost, "domain": testAccLiveResolverOverrideDomain},
+		label:   testAccLiveForwarderAliasParentKey,
+	}
+
+	testAccLiveForwarderAliasChild = testAccLiveChild{
+		kind:          "DNS forwarder host override alias",
+		parentPlural:  dnsForwarderHostOverrideParentPlural,
+		parentFilters: map[string]string{"host": testAccLiveForwarderAliasParentHost, "domain": testAccLiveResolverOverrideDomain},
+		childPlural:   dnsForwarderHostOverrideAliasPlural,
+		keyField:      "host",
+		keyValue:      testAccLiveForwarderAliasHost,
+	}
+)
+
+func testAccServicesDNSForwarderHostOverrideAliasLiveConfig(description string) string {
+	return testAccProviderConfig() +
+		testAccServicesDNSForwarderHostOverrideBlock(
+			"alias_parent",
+			testAccLiveForwarderAliasParentHost,
+			testAccLiveForwarderOverrideIP,
+			"tftest_live_forwarder_alias_parent",
+			testAccLiveAliasIgnoreLifecycle,
+		) +
+		fmt.Sprintf(`
+resource "pfsense_services_dns_forwarder_host_override_alias" "live" {
+  parent_id   = "${pfsense_services_dns_forwarder_host_override.alias_parent.host}|${pfsense_services_dns_forwarder_host_override.alias_parent.domain}"
+  host        = %q
+  domain      = %q
+  description = %q
+}
+`, testAccLiveForwarderAliasHost, testAccLiveResolverOverrideDomain, description)
+}
+
+func TestAccServicesDNSForwarderHostOverrideAliasResourceLive(t *testing.T) {
+	resource.Test(t, resource.TestCase{
+		PreCheck: func() {
+			testAccPreCheck(t)
+			testAccLiveForwarderAliasParentObject.preCheckAbsent(t)
+			testAccLiveForwarderAliasChild.preCheckAbsent(t)
+		},
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		CheckDestroy: testAccCheckLiveObjectsAbsent(
+			testAccLiveForwarderAliasChild.checkAbsent(),
+			testAccLiveForwarderAliasParentObject.checkAbsent(),
+		),
+		Steps: []resource.TestStep{
+			{
+				Config: testAccServicesDNSForwarderHostOverrideAliasLiveConfig(testAccLiveForwarderAliasDescr),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr(
+						"pfsense_services_dns_forwarder_host_override_alias.live", "id",
+						testAccLiveForwarderAliasParentKey+"|"+testAccLiveForwarderAliasHost,
+					),
+					resource.TestCheckResourceAttr("pfsense_services_dns_forwarder_host_override_alias.live", "parent_id", testAccLiveForwarderAliasParentKey),
+					resource.TestCheckResourceAttr("pfsense_services_dns_forwarder_host_override_alias.live", "host", testAccLiveForwarderAliasHost),
+					resource.TestCheckResourceAttr("pfsense_services_dns_forwarder_host_override_alias.live", "domain", testAccLiveResolverOverrideDomain),
+					resource.TestCheckResourceAttr("pfsense_services_dns_forwarder_host_override_alias.live", "description", testAccLiveForwarderAliasDescr),
+				),
+			},
+			{
+				// The parent override and the alias hostname are unchanged, so this is
+				// an in-place update; only the description moves.
+				Config: testAccServicesDNSForwarderHostOverrideAliasLiveConfig(testAccLiveForwarderAliasDescr + " (updated)"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr(
+						"pfsense_services_dns_forwarder_host_override_alias.live", "id",
+						testAccLiveForwarderAliasParentKey+"|"+testAccLiveForwarderAliasHost,
+					),
+					resource.TestCheckResourceAttr("pfsense_services_dns_forwarder_host_override_alias.live", "description", testAccLiveForwarderAliasDescr+" (updated)"),
+				),
+			},
+			{
+				// The import ID is the parent's own key and the alias hostname, joined
+				// by pipes.
+				ResourceName:      "pfsense_services_dns_forwarder_host_override_alias.live",
+				ImportState:       true,
+				ImportStateId:     testAccLiveForwarderAliasParentKey + "|" + testAccLiveForwarderAliasHost,
 				ImportStateVerify: true,
 			},
 		},
