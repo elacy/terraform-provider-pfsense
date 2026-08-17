@@ -11,6 +11,22 @@ import (
 // tftest_ prefix keeps it distinguishable from real configuration on the box.
 const testAccLiveAliasName = "tftest_live_alias"
 
+// testAccPreCheckLiveAliasAbsent refuses to start when the throwaway alias is
+// already on the box. The name is fixed, so a leftover from an aborted run (or
+// a second run in parallel) would otherwise be adopted and then destroyed by
+// this test — better to stop and let a human clean up.
+func testAccPreCheckLiveAliasAbsent(t *testing.T) {
+	t.Helper()
+
+	found, err := testAccFirewallAliasExists(testAccLiveAliasName)
+	if err != nil {
+		t.Fatalf("checking firewall alias %q does not already exist: %v", testAccLiveAliasName, err)
+	}
+	if found {
+		t.Fatalf("firewall alias %q already exists on the box; remove it before running the live test", testAccLiveAliasName)
+	}
+}
+
 // testAccFirewallAliasLiveConfig renders the alias config for one step. `detail`
 // is set explicitly because the API always echoes the per-entry detail list
 // back, so leaving it unmanaged would produce a permanent diff.
@@ -30,7 +46,10 @@ resource "pfsense_firewall_alias" "live" {
 // of a firewall alias against a real pfSense instance.
 func TestAccFirewallAliasResourceLive(t *testing.T) {
 	resource.Test(t, resource.TestCase{
-		PreCheck:                 func() { testAccPreCheck(t) },
+		PreCheck: func() {
+			testAccPreCheck(t)
+			testAccPreCheckLiveAliasAbsent(t)
+		},
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		CheckDestroy:             testAccCheckFirewallAliasAbsent(testAccLiveAliasName),
 		Steps: []resource.TestStep{

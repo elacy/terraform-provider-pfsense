@@ -41,10 +41,17 @@ func testAccPreCheck(t *testing.T) {
 		t.Skip("TF_ACC=1 is not set; skipping live acceptance test")
 	}
 
-	for _, name := range []string{envURL, envUsername, envPassword} {
-		if os.Getenv(name) == "" {
-			t.Fatalf("%s must be set for live acceptance tests", name)
-		}
+	if os.Getenv(envURL) == "" {
+		t.Fatalf("%s must be set for live acceptance tests", envURL)
+	}
+
+	// Either auth mode is fine, but a half-configured one is a setup mistake:
+	// an API key alone, or a complete username/password pair, but not a
+	// username without its password.
+	hasAPIKey := os.Getenv(envAPIKey) != ""
+	hasUserPass := os.Getenv(envUsername) != "" && os.Getenv(envPassword) != ""
+	if !hasAPIKey && !hasUserPass {
+		t.Fatalf("live acceptance tests need either %s, or both %s and %s", envAPIKey, envUsername, envPassword)
 	}
 }
 
@@ -110,15 +117,24 @@ func testAccCheckListAttrMinLen(resourceName, attribute string, minLen int) reso
 	}
 }
 
+// testAccFirewallAliasExists reports whether an alias is present on the live
+// box, resolving it by its natural key the same way the resource does.
+func testAccFirewallAliasExists(name string) (bool, error) {
+	c, err := testAccClient()
+	if err != nil {
+		return false, fmt.Errorf("building verification client: %w", err)
+	}
+	_, _, found, err := findByKey(context.Background(), c, firewallAliasPlural, "name", name)
+	if err != nil {
+		return false, fmt.Errorf("looking up firewall alias %q: %w", name, err)
+	}
+	return found, nil
+}
+
 // testAccCheckFirewallAliasAbsent verifies an alias is gone from the live box.
-// It resolves the alias by its natural key, the same way the resource does.
 func testAccCheckFirewallAliasAbsent(name string) resource.TestCheckFunc {
 	return func(*terraform.State) error {
-		c, err := testAccClient()
-		if err != nil {
-			return fmt.Errorf("building verification client: %w", err)
-		}
-		_, _, found, err := findByKey(context.Background(), c, firewallAliasPlural, "name", name)
+		found, err := testAccFirewallAliasExists(name)
 		if err != nil {
 			return fmt.Errorf("checking firewall alias %q was destroyed: %w", name, err)
 		}
