@@ -140,15 +140,22 @@ func (r *networkInterfaceResource) Schema(_ context.Context, _ resource.SchemaRe
 					stringvalidator.OneOf("staticv6", "dhcp6", "slaac", "6rd", "track6", "6to4", "none"),
 				},
 			},
-			"ipaddrv6":             requiredStringAttribute("IPv6 address (used when `typev6` is `staticv6`)."),
-			"subnetv6":             schema.Int64Attribute{Required: true, Description: "IPv6 subnet bit count (used when `typev6` is `staticv6`)."},
+			// The IPv6 addressing attributes below are optional because pfSense
+			// only stores each one under the matching `typev6` mode and reports
+			// the rest as null: `staticv6` keeps `ipaddrv6`/`subnetv6`, `6rd`
+			// keeps the `prefix_6rd` triple, `track6` keeps `track6_interface`.
+			// Marking any of them required would force a config to send values
+			// the API discards, and every apply would then leave a permanent
+			// diff. Supply only the ones the chosen `typev6` mode uses.
+			"ipaddrv6":             optionalStringAttribute("IPv6 address (used when `typev6` is `staticv6`)."),
+			"subnetv6":             optionalIntAttribute("IPv6 subnet bit count (used when `typev6` is `staticv6`)."),
 			"gatewayv6":            optionalStringAttribute("Optional IPv6 gateway (gateway name)."),
 			"ipv6usev4iface":       optionalBoolAttribute("Use IPv4 gateway as the IPv6 gateway."),
 			"slaacusev4iface":      optionalBoolAttribute("Use IPv4 gateway as the IPv6 SLAAC gateway."),
-			"prefix_6rd":           requiredStringAttribute("6rd prefix (used when `typev6` is `6rd`)."),
-			"gateway_6rd":          requiredStringAttribute("6rd gateway address (used when `typev6` is `6rd`)."),
-			"prefix_6rd_v4plen":    schema.Int64Attribute{Required: true, Description: "6rd IPv4 prefix length (used when `typev6` is `6rd`)."},
-			"track6_interface":     requiredStringAttribute("Interface to track for IPv6 (used when `typev6` is `track6`)."),
+			"prefix_6rd":           optionalStringAttribute("6rd prefix (used when `typev6` is `6rd`)."),
+			"gateway_6rd":          optionalStringAttribute("6rd gateway address (used when `typev6` is `6rd`)."),
+			"prefix_6rd_v4plen":    optionalIntAttribute("6rd IPv4 prefix length (used when `typev6` is `6rd`)."),
+			"track6_interface":     optionalStringAttribute("Interface to track for IPv6 (used when `typev6` is `track6`)."),
 			"track6_prefix_id_hex": optionalStringAttribute("IPv6 prefix ID in hex (used when `typev6` is `track6`)."),
 		},
 	}

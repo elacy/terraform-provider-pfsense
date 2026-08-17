@@ -491,8 +491,15 @@ func TestAccInterfaceGroupResourceLive(t *testing.T) {
 //
 // `wan` is the single physical NIC on the reference box and carries the
 // management address these tests connect over, so the only member the API would
-// accept is exactly the one that must never be bridged. There is no safe
-// configuration to test here until a box with a spare assignable NIC is
+// accept is exactly the one that must never be bridged.
+//
+// The one workaround this provider could express — create throwaway VLAN clones
+// on `vtnet0`, assign them to the free `lan`/`opt1` slots via
+// pfsense_network_interface, and bridge those — was ATTEMPTED live and is not
+// safe: assigning the `lan` slot makes pfSense auto-create default rules and
+// reload every interface, and the apply dropped the management address
+// (10.99.0.2) mid-test, requiring a VM restart to recover. The box has no spare
+// assignable physical NIC, so bridge stays untested until a multi-NIC VM is
 // available.
 
 // ---------------------------------------------------------------------------
@@ -575,23 +582,31 @@ func testAccCheckNetworkInterfaceImported(iface string) resource.ImportStateChec
 }
 
 // testAccNetworkInterfaceLiveConfig declares the resource so `terraform import`
-// has an address to import into. It is never applied: the only step is an
-// import step, and every required attribute is filled from the live object's
-// own values so the block could not drift the box even if it were.
+// has an address to import into.
+//
+// THE SAFETY OF THIS TEST RESTS ON ONE INVARIANT, AND ONLY ON IT: this config is
+// never applied. The single step uses the default ImportStateKind, which the
+// testing framework runs as `terraform import` in a throwaway working directory
+// with ImportStatePersist left false. The test case's own state therefore stays
+// empty, no plan or apply is ever produced from this HCL, and the post-test
+// destroy is a no-op.
+//
+// The block is NOT safe to apply, so do not switch the step to
+// ImportStateKind: resource.ImportBlockWithID (or set ImportStatePersist: true).
+// Either would drive this HCL through a real plan and apply against `wan` — the
+// single physical NIC carrying the management address these tests connect over.
+// `descr = "WAN"` alone would fail the write (the API answers
+// FILTER_NAME_VALIDATOR_RESERVED_NAME_USED), and `ipaddr = "10.99.0.2"` and
+// `descr = "WAN"` hardcode this box's addressing rather than reading it back
+// from the live object.
 func testAccNetworkInterfaceLiveConfig() string {
 	return testAccProviderConfig() + fmt.Sprintf(`
 resource "pfsense_network_interface" "live" {
-  if                = %q
-  descr             = "WAN"
-  typev4            = "static"
-  ipaddr            = "10.99.0.2"
-  subnet            = 24
-  ipaddrv6          = "2001:db8:1::1"
-  subnetv6          = 64
-  prefix_6rd        = "2001:db8:2::/32"
-  gateway_6rd       = "192.0.2.254"
-  prefix_6rd_v4plen = 0
-  track6_interface  = "wan"
+  if     = %q
+  descr  = "WAN"
+  typev4 = "static"
+  ipaddr = "10.99.0.2"
+  subnet = 24
 }
 `, testAccLiveNetworkInterfaceKey)
 }
