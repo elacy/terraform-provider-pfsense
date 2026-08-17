@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/elacy/terraform-provider-pfsense/v2/internal/client"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -17,6 +18,7 @@ type systemHostnameResource struct{ client *client.Client }
 
 var _ resource.Resource = (*systemHostnameResource)(nil)
 var _ resource.ResourceWithConfigure = (*systemHostnameResource)(nil)
+var _ resource.ResourceWithImportState = (*systemHostnameResource)(nil)
 
 const systemHostnamePath = "/api/v2/system/hostname"
 
@@ -103,6 +105,12 @@ func (r *systemHostnameResource) Delete(ctx context.Context, req resource.Delete
 	// System hostname cannot be deleted; removal from state is sufficient.
 }
 
+// ImportState adopts the settings already on the box. Singletons have a fixed
+// identifier, so the import ID is always `system`.
+func (r *systemHostnameResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
+}
+
 // ---------------------------------------------------------------------------
 // pfsense_system_dns (singleton)
 // ---------------------------------------------------------------------------
@@ -111,6 +119,7 @@ type systemDNSResource struct{ client *client.Client }
 
 var _ resource.Resource = (*systemDNSResource)(nil)
 var _ resource.ResourceWithConfigure = (*systemDNSResource)(nil)
+var _ resource.ResourceWithImportState = (*systemDNSResource)(nil)
 
 const systemDNSPath = "/api/v2/system/dns"
 
@@ -202,6 +211,12 @@ func (r *systemDNSResource) Delete(ctx context.Context, req resource.DeleteReque
 	// System DNS settings cannot be deleted; removal from state is sufficient.
 }
 
+// ImportState adopts the settings already on the box; the import ID is always
+// `system`.
+func (r *systemDNSResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
+}
+
 // ---------------------------------------------------------------------------
 // pfsense_system_timezone (singleton)
 // ---------------------------------------------------------------------------
@@ -210,6 +225,7 @@ type systemTimezoneResource struct{ client *client.Client }
 
 var _ resource.Resource = (*systemTimezoneResource)(nil)
 var _ resource.ResourceWithConfigure = (*systemTimezoneResource)(nil)
+var _ resource.ResourceWithImportState = (*systemTimezoneResource)(nil)
 
 const systemTimezonePath = "/api/v2/system/timezone"
 
@@ -287,6 +303,12 @@ func (r *systemTimezoneResource) Update(ctx context.Context, req resource.Update
 
 func (r *systemTimezoneResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
 	// System timezone cannot be deleted; removal from state is sufficient.
+}
+
+// ImportState adopts the timezone already on the box; the import ID is always
+// `system`.
+func (r *systemTimezoneResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }
 
 // ---------------------------------------------------------------------------

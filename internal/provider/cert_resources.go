@@ -2,7 +2,7 @@ package provider
 
 import (
 	"context"
-	"encoding/json"
+	"fmt"
 
 	"github.com/elacy/terraform-provider-pfsense/v2/internal/client"
 	"github.com/hashicorp/terraform-plugin-framework/path"
@@ -82,12 +82,16 @@ func (r *systemCAResource) Create(ctx context.Context, req resource.CreateReques
 		resp.Diagnostics.AddError("failed to create CA", err.Error())
 		return
 	}
-	var created map[string]any
-	if err := json.Unmarshal(raw, &created); err == nil {
-		if refid := getString(created, "refid"); refid != nil {
-			plan.RefID = types.StringValue(*refid)
-			plan.ID = types.StringValue(*refid)
-		}
+	// `refid` is computed and doubles as the identifier, so it has to be known
+	// after apply; the create response is the only place it is reported.
+	created, err := decodeObject(raw)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to create CA", err.Error())
+		return
+	}
+	if refid := getString(created, "refid"); refid != nil {
+		plan.RefID = types.StringValue(*refid)
+		plan.ID = types.StringValue(*refid)
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
@@ -151,10 +155,22 @@ func (r *systemCAResource) Update(ctx context.Context, req resource.UpdateReques
 	setInt(payload, "serial", plan.Serial)
 	setString(payload, "crt", plan.Crt)
 	setString(payload, "prv", plan.Prv)
-	if _, err := r.client.Update(ctx, systemCASingular, payload); err != nil {
+	raw, err := r.client.Update(ctx, systemCASingular, payload)
+	if err != nil {
 		resp.Diagnostics.AddError("failed to update CA", err.Error())
 		return
 	}
+	// The plan leaves every computed attribute unknown, so they have to be filled
+	// in from the update response before the state is written back.
+	updated, err := decodeObject(raw)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to update CA", err.Error())
+		return
+	}
+	if got := getString(updated, "refid"); got != nil {
+		refid = *got
+	}
+	plan.RefID = types.StringValue(refid)
 	plan.ID = types.StringValue(refid)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
@@ -256,14 +272,50 @@ func (r *systemCertificateResource) Create(ctx context.Context, req resource.Cre
 		resp.Diagnostics.AddError("failed to create certificate", err.Error())
 		return
 	}
-	var created map[string]any
-	if err := json.Unmarshal(raw, &created); err == nil {
-		if refid := getString(created, "refid"); refid != nil {
-			plan.RefID = types.StringValue(*refid)
-			plan.ID = types.StringValue(*refid)
-		}
+	// The create response is the only place the assigned refid appears; the rest
+	// of the computed attributes are read back from the collection.
+	created, err := decodeObject(raw)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to create certificate", err.Error())
+		return
+	}
+	refid := getString(created, "refid")
+	if refid == nil {
+		resp.Diagnostics.AddError("failed to create certificate", "the API did not report a refid for the new certificate")
+		return
+	}
+	if err := r.setComputed(ctx, *refid, &plan); err != nil {
+		resp.Diagnostics.AddError("failed to create certificate", err.Error())
+		return
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+}
+
+// setComputed fills in every attribute the system assigns — `refid`, the
+// resolved `caref`, the signing request and the validity window — which the plan
+// leaves unknown and which an apply may not leave unknown.
+//
+// The values are read back from the collection rather than taken from the
+// mutation response because the two disagree on how they spell an absent field:
+// a certificate imported from an existing key pair has no CSR, which the create
+// and update responses report as null and the collection as an empty string.
+// Reading back keeps the value an apply stores identical to the one a later
+// refresh or an import produces.
+func (r *systemCertificateResource) setComputed(ctx context.Context, refid string, m *systemCertificateModel) error {
+	_, obj, found, err := findByKey(ctx, r.client, systemCertificatePlural, "refid", refid)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return fmt.Errorf("certificate %s is not present after apply", refid)
+	}
+	m.ID = types.StringValue(refid)
+	m.RefID = types.StringValue(refid)
+	m.CA = strValue(getString(obj, "caref"))
+	m.CSR = strValue(getString(obj, "csr"))
+	m.ValidFrom = strValue(getString(obj, "valid_from"))
+	m.ValidUntil = strValue(getString(obj, "valid_until"))
+	return nil
 }
 
 func (r *systemCertificateResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
@@ -325,7 +377,10 @@ func (r *systemCertificateResource) Update(ctx context.Context, req resource.Upd
 		resp.Diagnostics.AddError("failed to update certificate", err.Error())
 		return
 	}
-	plan.ID = types.StringValue(refid)
+	if err := r.setComputed(ctx, refid, &plan); err != nil {
+		resp.Diagnostics.AddError("failed to update certificate", err.Error())
+		return
+	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
