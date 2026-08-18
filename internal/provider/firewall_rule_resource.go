@@ -76,6 +76,7 @@ func (r *firewallRuleResource) Configure(ctx context.Context, req resource.Confi
 
 func (r *firewallRuleResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
+		Version:     1,
 		Description: "Manages a firewall rule. Rules are identified by a unique `descr` value.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{

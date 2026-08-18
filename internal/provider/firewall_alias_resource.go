@@ -51,6 +51,7 @@ func (r *firewallAliasResource) Configure(ctx context.Context, req resource.Conf
 
 func (r *firewallAliasResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
+		Version:     1,
 		Description: "Manages a firewall alias. Aliases group hosts, networks or ports under a single name.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{

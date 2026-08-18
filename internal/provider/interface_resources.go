@@ -86,6 +86,7 @@ func (r *networkInterfaceResource) Configure(ctx context.Context, req resource.C
 }
 func (r *networkInterfaceResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
+		Version:     1,
 		Description: "Manages a pfSense network interface (e.g. WAN, LAN, OPT). Identified by the interface key (`if`).",
 		Attributes: map[string]schema.Attribute{
 			"id": computedIDAttribute(),
