@@ -319,6 +319,7 @@ type servicesNTPSettingsResource struct{ client *client.Client }
 
 var _ resource.Resource = (*servicesNTPSettingsResource)(nil)
 var _ resource.ResourceWithConfigure = (*servicesNTPSettingsResource)(nil)
+var _ resource.ResourceWithImportState = (*servicesNTPSettingsResource)(nil)
 
 const servicesNTPSettingsPath = "/api/v2/services/ntp/settings"
 
@@ -460,4 +461,10 @@ func (r *servicesNTPSettingsResource) Update(ctx context.Context, req resource.U
 
 func (r *servicesNTPSettingsResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
 	// NTP settings cannot be deleted; removal from state is sufficient.
+}
+
+// ImportState adopts the settings already on the box. Singletons have a fixed
+// identifier, so the import ID is always `system`.
+func (r *servicesNTPSettingsResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }
