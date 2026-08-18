@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -133,10 +136,16 @@ func (c testAccLiveChild) checkAbsent() resource.TestCheckFunc {
 // the very same models reject a create with MODEL_MISSING_REQUIRED_PACKAGE. A
 // probe that does create an object (on a box where the package is installed)
 // deletes it again before returning.
-func testAccLivePackageMissing(singularPath string, probe map[string]any) (string, error) {
+//
+// A create the box turns down for any other reason means it got as far as
+// validating the payload, which it can only do once the package is installed —
+// but nothing was written, so that rejection comes back as `rejected` rather
+// than being reported as an accepted write. Both results are empty only when
+// the probe genuinely created (and removed) an object.
+func testAccLivePackageMissing(singularPath string, probe map[string]any) (missing, rejected string, err error) {
 	c, err := testAccClient()
 	if err != nil {
-		return "", fmt.Errorf("building verification client: %w", err)
+		return "", "", fmt.Errorf("building verification client: %w", err)
 	}
 	ctx := context.Background()
 
@@ -144,31 +153,33 @@ func testAccLivePackageMissing(singularPath string, probe map[string]any) (strin
 	if err != nil {
 		var apiErr *client.APIError
 		if errors.As(err, &apiErr) && apiErr.ResponseID == "MODEL_MISSING_REQUIRED_PACKAGE" {
-			return strings.TrimSpace(apiErr.Message), nil
+			return strings.TrimSpace(apiErr.Message), "", nil
 		}
-		// Any other rejection means the box got as far as validating the payload,
-		// which it can only do once the package is installed.
-		return "", nil
+		return "", strings.TrimSpace(err.Error()), nil
 	}
 
 	obj, err := decodeObject(raw)
 	if err != nil {
-		return "", fmt.Errorf("decoding the probe object created at %s: %w", singularPath, err)
+		return "", "", fmt.Errorf("decoding the probe object created at %s: %w", singularPath, err)
 	}
 	if err := c.Delete(ctx, singularPath, client.Query{}.Set("id", formatID(obj["id"])).Set("apply", "true")); err != nil {
-		return "", fmt.Errorf("removing the probe object created at %s: %w", singularPath, err)
+		return "", "", fmt.Errorf("removing the probe object created at %s: %w", singularPath, err)
 	}
-	return "", nil
+	return "", "", nil
 }
 
 // testAccSkipWhenPackageMissing skips a live test when the pfSense package its
 // resource needs is not installed on the box, reporting what the box said. The
 // reference box sits on an isolated bridge with no route to pkg.pfsense.org, so
 // installing one is not an option.
-func testAccSkipWhenPackageMissing(t *testing.T, resourceName, singularPath string, probe map[string]any) {
+//
+// It returns the box's reason for turning the probe write down for anything
+// other than a missing package, so callers that report on the probe can say
+// what really happened; a caller that only needs the skip can ignore it.
+func testAccSkipWhenPackageMissing(t *testing.T, resourceName, singularPath string, probe map[string]any) string {
 	t.Helper()
 
-	missing, err := testAccLivePackageMissing(singularPath, probe)
+	missing, rejected, err := testAccLivePackageMissing(singularPath, probe)
 	if err != nil {
 		t.Fatalf("probing whether %s is usable on the box: %v", resourceName, err)
 	}
@@ -176,6 +187,7 @@ func testAccSkipWhenPackageMissing(t *testing.T, resourceName, singularPath stri
 		t.Skipf("skipping live CRUD for %s: %s The reference box is on an isolated bridge with no "+
 			"route to pkg.pfsense.org, so the package cannot be installed.", resourceName, missing)
 	}
+	return rejected
 }
 
 // testAccLiveComposite identifies an object whose natural key spans several
@@ -1102,13 +1114,10 @@ func TestAccServicesDNSForwarderHostOverrideAliasResourceLive(t *testing.T) {
 // advertises its own clock once every configured time source has been
 // unreachable for long enough — it cannot affect the management path, and the
 // service-enabled state is pinned to the box's own value in every step so ntpd
-// is neither started nor stopped. `12` is the API default, which is what makes
-// the guard idempotent: a box found on the test value is a leftover from a run
-// that died mid-test and is rolled back before this one starts.
-const (
-	testAccLiveNTPOrphan         = 11
-	testAccLiveNTPOrphanFallback = 12
-)
+// is neither started nor stopped. The guard is idempotent: a box found on the
+// test value is a leftover from a run that died mid-test and is rolled back —
+// to the value that run parked before it started — before this one begins.
+const testAccLiveNTPOrphan = 11
 
 // testAccLiveNTPPinnedFields are the settings the resource reads back and the
 // configuration therefore has to pin to the box's own values, so that the only
@@ -1180,6 +1189,48 @@ func testAccCheckLiveNTPDUnchanged() resource.TestCheckFunc {
 	}
 }
 
+// testAccLiveNTPOrphanFile names the file the precheck parks the box's own
+// orphan stratum in before any step can move it. A run that dies mid-test
+// leaves the box on testAccLiveNTPOrphan, and this file is the only record of
+// what it held before — the API default would be a guess that clobbers a box
+// configured with anything else. The name is keyed to the box the environment
+// points at, so runs against different targets do not overwrite each other.
+func testAccLiveNTPOrphanFile() string {
+	key := strings.Map(func(r rune) rune {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+			return r
+		}
+		return '-'
+	}, os.Getenv(envURL))
+	return filepath.Join(os.TempDir(), "pfsense-tftest-ntp-orphan-"+key)
+}
+
+// testAccLiveReadNTPOrphan returns the orphan stratum parked by an earlier run,
+// or nil when nothing was parked.
+func testAccLiveReadNTPOrphan() (*int64, error) {
+	path := testAccLiveNTPOrphanFile()
+	raw, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("reading %s: %w", path, err)
+	}
+	orphan, err := strconv.ParseInt(strings.TrimSpace(string(raw)), 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("parsing the orphan stratum recorded in %s: %w", path, err)
+	}
+	return &orphan, nil
+}
+
+func testAccLiveWriteNTPOrphan(orphan int64) error {
+	path := testAccLiveNTPOrphanFile()
+	if err := os.WriteFile(path, []byte(strconv.FormatInt(orphan, 10)), 0o600); err != nil {
+		return fmt.Errorf("writing %s: %w", path, err)
+	}
+	return nil
+}
+
 func testAccPreCheckLiveNTPSettings(t *testing.T) {
 	t.Helper()
 
@@ -1189,16 +1240,33 @@ func testAccPreCheckLiveNTPSettings(t *testing.T) {
 	}
 
 	if orphan := getInt(obj, "orphan"); orphan != nil && *orphan == testAccLiveNTPOrphan {
-		t.Logf("restoring orphan stratum %d left behind by an earlier run", testAccLiveNTPOrphanFallback)
-		if err := testAccLiveUpdateObject(servicesNTPSettingsPath, map[string]any{"orphan": testAccLiveNTPOrphanFallback}); err != nil {
+		parked, err := testAccLiveReadNTPOrphan()
+		if err != nil {
+			t.Fatalf("reading the orphan stratum parked by an earlier run: %v", err)
+		}
+		if parked == nil {
+			t.Fatalf("the box is on the test orphan stratum %d, left behind by a run that died before it could "+
+				"put the box's own value back, and %s holds no record of what that value was; restore the "+
+				"orphan stratum by hand and delete that file before running this test again",
+				testAccLiveNTPOrphan, testAccLiveNTPOrphanFile())
+		}
+		t.Logf("restoring orphan stratum %d left behind by an earlier run", *parked)
+		if err := testAccLiveUpdateObject(servicesNTPSettingsPath, map[string]any{"orphan": *parked}); err != nil {
 			t.Fatalf("restoring the orphan stratum left behind by an earlier run: %v", err)
 		}
 		if obj, err = testAccLiveGetObject(servicesNTPSettingsPath); err != nil {
 			t.Fatalf("re-reading the NTP settings after the rollback: %v", err)
 		}
 	}
-	if getInt(obj, "orphan") == nil {
+	orphan := getInt(obj, "orphan")
+	if orphan == nil {
 		t.Fatalf("the box reports no orphan stratum; refusing to run the live test")
+	}
+	// Park the box's own value while it is still the box's own value: this run
+	// is about to move it, and a run that dies mid-test leaves nothing else to
+	// roll the box back to.
+	if err := testAccLiveWriteNTPOrphan(*orphan); err != nil {
+		t.Fatalf("recording the orphan stratum the box started on: %v", err)
 	}
 
 	running, err := testAccLiveNTPDRunning()
@@ -1460,14 +1528,19 @@ func TestAccServicesCronJobResourceLive(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // testAccSkipUncoveredPackageResource is the shared body of those tests: it
-// skips either with what the box said about the missing package, or — on a box
-// that has it — with a note that the resource still needs a CRUD test written
-// against a live installation.
+// skips with what the box said about the missing package, or — on a box that
+// did not report it missing — with a note that the resource still needs a CRUD
+// test written against a live installation. A probe the box turned down for
+// some other reason is reported as exactly that, since nothing was written.
 func testAccSkipUncoveredPackageResource(t *testing.T, resourceName, pkg, singularPath string, probe map[string]any) {
 	t.Helper()
 
 	testAccPreCheck(t)
-	testAccSkipWhenPackageMissing(t, resourceName, singularPath, probe)
+	if rejected := testAccSkipWhenPackageMissing(t, resourceName, singularPath, probe); rejected != "" {
+		t.Skipf("skipping live CRUD for %s: the box did not report %s as missing (the probe write to %s was "+
+			"rejected: %s), so this resource needs a live CRUD test written against it",
+			resourceName, pkg, singularPath, rejected)
+	}
 	t.Skipf("skipping live CRUD for %s: the box accepted a write to %s, so %s is installed after all "+
 		"and this resource needs a live CRUD test written against it", resourceName, singularPath, pkg)
 }
