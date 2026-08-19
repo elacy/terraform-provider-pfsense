@@ -90,7 +90,7 @@ func (r *dhcpStaticMappingResource) upgradeStateV0To1(ctx context.Context, req r
 	if iface == "" || mac == "" {
 		resp.Diagnostics.AddError(
 			"failed to upgrade state for pfsense_services_dhcp_static_mapping",
-			"unable to derive the resource id from the prior state: both \"interface\" and \"mac\" are empty",
+			"unable to derive the resource id from the prior state: \"interface\" and/or \"mac\" is empty",
 		)
 		return
 	}
