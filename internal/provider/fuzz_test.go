@@ -2,6 +2,7 @@ package provider
 
 import (
 	"encoding/json"
+	"math"
 	"strconv"
 	"strings"
 	"testing"
@@ -44,9 +45,9 @@ func FuzzAtoi64(f *testing.F) {
 			}
 			return
 		}
-		// Overflow: atoi64 must not silently wrap to a negative value.
-		if got < 0 {
-			t.Fatalf("atoi64(%q) overflowed to %d (must never be negative)", s, got)
+		// Overflow: atoi64 must saturate to MaxInt64, not silently wrap negative.
+		if got != math.MaxInt64 {
+			t.Fatalf("atoi64(%q) overflowed to %d, want math.MaxInt64", s, got)
 		}
 	})
 }
@@ -124,7 +125,7 @@ func FuzzSplitRouteKey(f *testing.F) {
 }
 
 // FuzzDecodeObject asserts decodeObject is panic-free and that it never returns
-// both a nil map and a nil error for non-empty input.
+// both a nil map and a nil error for any input, including empty.
 func FuzzDecodeObject(f *testing.F) {
 	f.Add([]byte(`{"a":1}`))
 	f.Add([]byte(`null`))
