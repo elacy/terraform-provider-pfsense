@@ -177,7 +177,8 @@ pfSense `/api/v2/firewall/rule` endpoint. Section 4.4 covers the
 `pfsense_network_interface` addressing-type values, section 4.5 covers
 attributes that were optional in v1 and are required in v2 across both
 resources, and section 4.6 covers `pfsense_network_interface` attributes that
-are no longer modelled.
+are no longer modelled. Section 4.7 covers a `pfsense_services_dhcp_server`
+value that cannot be represented in v2.
 
 ### 4.1 Floating rules are no longer modelled
 
@@ -212,6 +213,11 @@ then re-run the upgrade.
 Check for affected rules before upgrading:
 
 ```bash
+# Empty descriptions block the upgrade on firewall RULES only. The grep below
+# also matches pfsense_firewall_alias, pfsense_dhcp_static_mapping and
+# pfsense_unbound_host_override, whose optional description SDKv2 also persisted
+# as "" — those are harmless. Cross-check each hit against the resource type
+# (or filter: terraform state list | grep pfsense_firewall_rule).
 terraform state pull | grep -E '"description": *""'
 ```
 
@@ -306,7 +312,9 @@ Find the resources you have to hand-edit before upgrading:
 # firewall rules missing ip_protocol / source / destination
 terraform state pull | grep -E '"(ip_protocol|source|destination)": *""'
 
-# interfaces missing type / ip_address / subnet
+# interfaces missing type / ip_address / subnet (the "type"/"ip_address" grep
+# also catches dhcp/unbound host entries on some API versions — cross-check the
+# surrounding resource address, e.g. via terraform state list)
 terraform state pull | grep -E '"(type|ip_address)": *""'
 terraform state pull | grep -E '"subnet": *0'
 ```
@@ -330,6 +338,25 @@ Check for affected interfaces before upgrading:
 terraform state pull | grep -E '"(dhcp_cv_pt|dhcp_vlan_enable)": *(true|[1-9])'
 ```
 
+### 4.7 `pfsense_services_dhcp_server` — non-numeric `max_lease_time` is dropped
+
+The v1 `max_lease_time` was an unvalidated optional *string* that accepted both
+a number of seconds and the literal `"infinite"` (no lease-expiry cap). The v2
+`maxleasetime` is an integer with no representation for `"infinite"`, so the
+StateUpgrader maps any non-numeric value to null and emits a **warning** naming
+the value.
+
+The pfSense configuration itself is untouched — only Terraform's tracking is
+lost — and null simply means "leave it to the server default". If the server
+requires a finite maximum lease time, set `maxleasetime` explicitly in your
+configuration.
+
+Check for affected servers before upgrading:
+
+```bash
+terraform state pull | grep -E '"max_lease_time": *"[^0-9]'
+```
+
 ---
 
 ## 5. Recommended migration order
@@ -343,7 +370,9 @@ terraform state pull | grep -E '"(dhcp_cv_pt|dhcp_vlan_enable)": *(true|[1-9])'
    `ip_protocol = "inet46"`.
 6. Triage the DHCP servers (section 3): grep for `domain_search_list`,
    `mac_allow_list`, `mac_deny_list` and `ignore_bootp`, and plan the
-   `pfsense_services_dhcp_address_pool` resources that will replace them.
+   `pfsense_services_dhcp_address_pool` resources that will replace them. Also
+   grep for a non-numeric `max_lease_time` (section 4.7) and set a finite
+   `maxleasetime` where the server needs a cap.
 7. Rewrite `type` as `typev4` on every `pfsense_network_interface`
    (`staticv4` → `static`). For interfaces that never set `type`, set `typev4`
    to the mode the interface actually uses (check the pfSense UI or

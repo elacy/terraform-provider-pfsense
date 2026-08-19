@@ -177,7 +177,7 @@ func upgradeStringToInt64(v types.String, attrName, resourceType string, diags *
 			"An error was encountered when upgrading "+resourceType+" state "+
 				"from schema version 0 to version 1: the value of attribute "+
 				"\""+attrName+"\" (\""+v.ValueString()+"\") could not be parsed as an integer. "+
-				"Set a valid integer value or remove the attribute from the resource configuration, then re-apply.",
+				"Fix the value in pfSense and refresh the state under v1, or hand-edit the backed-up state file, so the attribute holds a numeric value, then re-run the upgrade.",
 		)
 		return types.Int64Null()
 	}

@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"strconv"
 
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -45,8 +46,9 @@ var _ resource.ResourceWithUpgradeState = (*dhcpServerResource)(nil)
 // the two lease-time attributes is real v1 behaviour, not a transcription
 // bug: `default_lease_time` was already an integer in v1, while
 // `max_lease_time` was a string in v1 (it can be "infinite") and is retyped to
-// the v2 integer in toCurrent via upgradeStringToInt64. The implicit SDKv2
-// `id` attribute is deliberately excluded (the v1 id is derived from the
+// the v2 integer in toCurrent via dhcpServerMaxLeaseTimeUpgrade, which maps a
+// non-numeric value such as "infinite" to null with a warning. The implicit
+// SDKv2 `id` attribute is deliberately excluded (the v1 id is derived from the
 // natural key `interface`).
 var dhcpServerPriorSchemaV0 = schema.Schema{
 	Attributes: map[string]schema.Attribute{
@@ -94,6 +96,16 @@ func (r *dhcpServerResource) upgradeStateV0To1(ctx context.Context, req resource
 		return
 	}
 
+	// `interface` is Required in v0, so it is always populated, but guard it
+	// anyway (defense-in-depth): an empty id would make Read/Update/Delete
+	// target the first unrelated DHCP server via findByKey(..., "interface", "").
+	if prior.Interface.ValueString() == "" {
+		resp.Diagnostics.AddError(
+			"failed to upgrade state for pfsense_dhcp_server",
+			"unable to derive the resource id from the prior state: \"interface\" is empty",
+		)
+		return
+	}
 	cur.ID = dhcpServerPriorID(prior)
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &cur)...)
@@ -106,6 +118,35 @@ func (r *dhcpServerResource) upgradeStateV0To1(ctx context.Context, req resource
 // first Read.
 func dhcpServerPriorID(prior dhcpServerModelV0) types.String {
 	return prior.Interface
+}
+
+// dhcpServerMaxLeaseTimeUpgrade converts the v0 `max_lease_time` string to the
+// v1 `maxleasetime` integer. v0 held it as an unvalidated optional string, and
+// the pfSense API accepts not just a number of seconds but the literal
+// "infinite" (no lease-expiry cap). The v1 `maxleasetime` is an Int64 with no
+// representation for "infinite", so a non-numeric value maps to null with a
+// WARNING naming the value rather than an ERROR — an error would abort
+// UpgradeResourceState and brick the resource permanently, whereas null simply
+// means "leave it to the server default" and the first Read repopulates the
+// real value. A numeric string parses normally.
+func dhcpServerMaxLeaseTimeUpgrade(v types.String, diags *diag.Diagnostics) types.Int64 {
+	if v.IsNull() || v.ValueString() == "" {
+		return types.Int64Null()
+	}
+	n, err := strconv.ParseInt(v.ValueString(), 10, 64)
+	if err != nil {
+		diags.AddWarning(
+			"max_lease_time Dropped During State Upgrade",
+			"An error was encountered when upgrading pfsense_dhcp_server state "+
+				"from schema version 0 to version 1: the value of attribute "+
+				"\"max_lease_time\" (\""+v.ValueString()+"\") is not a number of seconds "+
+				"(the API also accepts \"infinite\"), which the v1 integer \"maxleasetime\" "+
+				"cannot represent. It has been dropped (migrated to null); configure a "+
+				"finite \"maxleasetime\" if the server requires one.",
+		)
+		return types.Int64Null()
+	}
+	return types.Int64Value(n)
 }
 
 // toCurrent maps every v0 value to its v1 home (renames, retypes, dropped
@@ -123,7 +164,7 @@ func (m dhcpServerModelV0) toCurrent(ctx context.Context) (dhcpServerModel, diag
 	cur.RangeTo = emptyToNull(m.RangeTo)
 	cur.Domain = emptyToNull(m.Domain)
 	cur.DefaultLease = zeroToNull(m.DefaultLeaseTime)
-	cur.MaxLease = upgradeStringToInt64(m.MaxLeaseTime, "max_lease_time", "pfsense_dhcp_server", &diags)
+	cur.MaxLease = dhcpServerMaxLeaseTimeUpgrade(m.MaxLeaseTime, &diags)
 	cur.Gateway = emptyToNull(m.Gateway)
 	cur.DNSServer = emptyListToNull(ctx, m.DNSServer)
 	// WINSServer, NTPServer and StaticMap have no v0 equivalent; keep them

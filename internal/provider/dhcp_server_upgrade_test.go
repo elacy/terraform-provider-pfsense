@@ -154,11 +154,32 @@ func TestDhcpServerModelV0ToCurrentInvalidInteger(t *testing.T) {
 		Interface:    types.StringValue("lan"),
 		MaxLeaseTime: types.StringValue("abc"),
 	}).toCurrent(ctx)
-	if !diags.HasError() {
-		t.Fatalf("expected a diagnostic for non-numeric max_lease_time, got none")
+	if diags.HasError() {
+		t.Fatalf("expected a warning (not an error) for non-numeric max_lease_time, got: %s", diags)
+	}
+	if diags.WarningsCount() != 1 {
+		t.Fatalf("got %d warnings, want 1 for non-numeric max_lease_time: %s", diags.WarningsCount(), diags.Warnings())
 	}
 	if !cur.MaxLease.IsNull() {
-		t.Errorf("MaxLease = %v, want null after parse failure", cur.MaxLease)
+		t.Errorf("MaxLease = %v, want null after non-numeric value is dropped", cur.MaxLease)
+	}
+}
+
+func TestDhcpServerModelV0ToCurrentInfiniteMaxLeaseTime(t *testing.T) {
+	ctx := context.Background()
+
+	cur, diags := (dhcpServerModelV0{
+		Interface:    types.StringValue("lan"),
+		MaxLeaseTime: types.StringValue("infinite"),
+	}).toCurrent(ctx)
+	if diags.HasError() {
+		t.Fatalf("infinite max_lease_time must not error, got: %s", diags)
+	}
+	if diags.WarningsCount() != 1 {
+		t.Fatalf("got %d warnings, want 1 for infinite max_lease_time: %s", diags.WarningsCount(), diags.Warnings())
+	}
+	if !cur.MaxLease.IsNull() {
+		t.Errorf("MaxLease = %v, want null for \"infinite\"", cur.MaxLease)
 	}
 }
 

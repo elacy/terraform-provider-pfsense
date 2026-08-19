@@ -148,7 +148,15 @@ func (r *networkInterfaceResource) upgradeStateV0To1(ctx context.Context, req re
 	// interface up by the `if` key. The v0 id was the interface's descriptive
 	// name, so carrying it over would put state out of contract until the
 	// first Read self-heals it. `if` is Required in v0 and therefore always
-	// populated, so use it directly.
+	// populated, but we guard it anyway (defense-in-depth): an empty `if` would
+	// make Read/Update/Delete target the first unrelated interface.
+	if prior.If.ValueString() == "" {
+		resp.Diagnostics.AddError(
+			"failed to upgrade state for pfsense_network_interface",
+			"unable to derive the resource id from the prior state: \"if\" is empty",
+		)
+		return
+	}
 	cur.ID = prior.If
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &cur)...)
