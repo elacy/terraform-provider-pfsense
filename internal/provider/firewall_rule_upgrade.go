@@ -230,9 +230,12 @@ func (m firewallRuleModelV0) toCurrent(ctx context.Context) (firewallRuleModel, 
 	}
 
 	// tcp_flag split (mirrors the old updateRequest): coveredFlags = every
-	// flag in the list (in order), setFlags = only present==true flags,
-	// TCPFlagsAny is null when coveredFlags is empty (the unset default is
-	// "any") and false when specific flags are selected.
+	// flag in the list (in order), setFlags = only present==true flags.
+	// tcp_flags_any is always null here: the v0 model never carried it as a
+	// separate attribute, and leaving it null (both when coveredFlags is empty
+	// and when specific flags are selected) lets the Optional-not-Computed
+	// attribute plan null instead of surfacing a spurious diff on the first
+	// plan.
 	//
 	// SDKv2 persists an unset optional TypeList as [], which req.State.Get
 	// decodes into a non-nil empty slice, so a v1 rule that never used tcp_flag
@@ -270,10 +273,12 @@ func (m firewallRuleModelV0) toCurrent(ctx context.Context) (firewallRuleModel, 
 	} else {
 		cur.TCPFlagsSet = types.ListValueMust(types.StringType, set)
 	}
-	// "any" is only meaningful when no specific flag is present. toCurrent
-	// returns early above when len(m.TCPFlag) == 0, so len(outOf) > 0 here
-	// and "any" is always false at this point.
-	cur.TCPFlagsAny = types.BoolValue(false)
+	// tcp_flags_any is Optional and not Computed with no default, and the v0
+	// model never carried it as a separate attribute. Leave it null so a
+	// config that omits the attribute plans null rather than surfacing a
+	// spurious false -> null diff on the first plan (mirroring the
+	// empty-flag branch above); the first Read repopulates the API value.
+	cur.TCPFlagsAny = types.BoolNull()
 
 	return cur, diags
 }

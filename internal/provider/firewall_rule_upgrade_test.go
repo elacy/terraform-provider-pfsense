@@ -167,8 +167,8 @@ func TestRuleModelV0ToCurrent(t *testing.T) {
 			t.Errorf("TCPFlagsOutOf[%d] = %q, want %q", i, outOfFlags[i], wantOutOf[i])
 		}
 	}
-	if cur.TCPFlagsAny.ValueBool() != false {
-		t.Errorf("TCPFlagsAny = %v, want false", cur.TCPFlagsAny.ValueBool())
+	if !cur.TCPFlagsAny.IsNull() {
+		t.Errorf("TCPFlagsAny = %v, want null", cur.TCPFlagsAny)
 	}
 
 	// v1-only attributes stay null so Read repopulates them.
@@ -249,8 +249,8 @@ func TestRuleModelV0ToCurrentAllFlagsNotPresent(t *testing.T) {
 	if !cur.TCPFlagsSet.IsNull() {
 		t.Errorf("TCPFlagsSet = %v, want null when every flag present=false", cur.TCPFlagsSet)
 	}
-	if cur.TCPFlagsAny.ValueBool() != false {
-		t.Errorf("TCPFlagsAny = %v, want false for non-empty covered list", cur.TCPFlagsAny.ValueBool())
+	if !cur.TCPFlagsAny.IsNull() {
+		t.Errorf("TCPFlagsAny = %v, want null for non-empty covered list", cur.TCPFlagsAny)
 	}
 
 	var outOf []string
@@ -492,8 +492,8 @@ func TestRuleUpgradeStateV0To1(t *testing.T) {
 	if len(outOfFlags) != 2 || outOfFlags[0] != "syn" || outOfFlags[1] != "ack" {
 		t.Errorf("TCPFlagsOutOf = %v, want [syn ack]", outOfFlags)
 	}
-	if got.TCPFlagsAny.ValueBool() != false {
-		t.Errorf("TCPFlagsAny = %v, want false", got.TCPFlagsAny.ValueBool())
+	if !got.TCPFlagsAny.IsNull() {
+		t.Errorf("TCPFlagsAny = %v, want null", got.TCPFlagsAny)
 	}
 }
 

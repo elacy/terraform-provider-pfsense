@@ -21,7 +21,7 @@ func TestDNSResolverHostOverrideUpgradeStateV0To1(t *testing.T) {
 	ctx := context.Background()
 
 	rawJSON, err := json.Marshal(map[string]any{
-		"id":           "www.example.com",
+		"id":           "stale.example.com",
 		"dns":          "www.example.com",
 		"ip_addresses": []string{"192.168.1.10", "192.168.1.11"},
 		"description":  "web server",
@@ -35,8 +35,11 @@ func TestDNSResolverHostOverrideUpgradeStateV0To1(t *testing.T) {
 	}
 	raw := &tfprotov6.RawState{JSON: rawJSON}
 
-	// priorResourceID must surface the implicit id not present in PriorSchema.
-	if got, want := priorResourceID(raw), "www.example.com"; got != want {
+	// priorResourceID surfaces the implicit raw v0 id, which the fixture sets
+	// to a deliberately stale value to prove the upgrader ignores it in favour
+	// of the natural key ("dns"). The assertions below then confirm the v1 id
+	// resolves from "dns", not from this stale raw id.
+	if got, want := priorResourceID(raw), "stale.example.com"; got != want {
 		t.Errorf("priorResourceID() = %q, want %q", got, want)
 	}
 	if host, domain := splitDNSHostDomain("www.example.com"); host != "www" || domain != "example.com" {
@@ -121,8 +124,9 @@ func TestDNSResolverHostOverrideUpgradeStateV0To1(t *testing.T) {
 	}
 }
 
-// TestDNSResolverHostOverrideUpgradeStateV0To1MissingID covers the fallback: when
-// the prior raw state has no implicit "id", the "dns" attribute is used.
+// TestDNSResolverHostOverrideUpgradeStateV0To1MissingID covers a raw state with
+// no implicit "id": the upgrader always derives the FQDN from the natural key
+// "dns" (Required in v0), so a missing raw id is not an error.
 func TestDNSResolverHostOverrideUpgradeStateV0To1MissingID(t *testing.T) {
 	ctx := context.Background()
 

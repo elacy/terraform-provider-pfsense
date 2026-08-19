@@ -88,11 +88,11 @@ func (r *dnsResolverHostOverrideResource) upgradeStateV0To1(ctx context.Context,
 		return
 	}
 
-	fqdn := priorResourceID(req.RawState)
-	if fqdn == "" {
-		// Fall back to the natural-key attribute ("dns" is Required in v0).
-		fqdn = prior.DNS.ValueString()
-	}
+	// The v1 id is derived from the natural key "dns" (Required in v0), never
+	// from the raw v0 id: SDKv2 sets the id once on Create and does not
+	// rewrite it when the host is edited in place, so a stale raw id would
+	// map the override to the wrong host after an in-place rename.
+	fqdn := prior.DNS.ValueString()
 	if fqdn == "" {
 		resp.Diagnostics.AddError(
 			"failed to upgrade state for pfsense_services_dns_resolver_host_override",

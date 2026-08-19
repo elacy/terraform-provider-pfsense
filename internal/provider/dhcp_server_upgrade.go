@@ -42,7 +42,7 @@ var _ resource.ResourceWithUpgradeState = (*dhcpServerResource)(nil)
 // provider v1 properties map) translated to framework attributes. It mirrors
 // the v0 state exactly: same attribute names, same required/optional flags,
 // SDKv2 types mapped per TYPE TRANSLATION rules (including max_lease_time as
-// as a String, since that is how it was stored in v0). The implicit SDKv2 `id`
+// a String, since that is how it was stored in v0). The implicit SDKv2 `id`
 // attribute is deliberately excluded (the v1 id is derived from the natural
 // key `interface`).
 var dhcpServerPriorSchemaV0 = schema.Schema{
