@@ -1,69 +1,154 @@
 package provider
 
 import (
-	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"sync"
 	"testing"
 
-	"github.com/hashicorp/terraform-plugin-framework/path"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
-	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
-	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/hashicorp/terraform-plugin-go/tftypes"
+	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 )
 
-// TestConstantComputedUsesStateForUnknown verifies the plan-modifier semantics
-// that distinguish constantComputed* from a plain computed attribute. The API
-// assigns these values once and never changes them.
-//
-// UseStateForUnknown is only correct for the VPN system-assigned IDs
-// (ikeid/reqid/vpnid/vpnif/uniqid on phase 1/2 and OpenVPN), whose Update
-// methods do NOT repopulate them from the API response: after an in-place
-// update the framework would surface them as "known after apply" every plan,
-// so the prior state value must carry forward. The other system-assigned IDs
-// (uid/refid/uniqid on the virtual IP, created_time/vlanif) ARE repopulated by
-// Update, so they must stay plain computed — UseStateForUnknown would pin the
-// stale planned value and turn any API-returned discrepancy into a hard
-// "inconsistent result after apply" instead of a silently-accepted refresh.
-func TestConstantComputedUsesStateForUnknown(t *testing.T) {
-	// A non-null prior state marks the resource as already-created (update),
-	// which is the only path where UseStateForUnknown acts.
-	priorState := tfsdk.State{Raw: tftypes.NewValue(tftypes.String, "present")}
+// ipsecPhase1Mock is an in-memory IPsec phase 1 backend that emulates the v2
+// REST API envelope, the descr-keyed lookup, and the system-assigned ikeid.
+type ipsecPhase1Mock struct {
+	mu    sync.Mutex
+	ikeid int64
+	items []map[string]any
+}
 
-	t.Run("string", func(t *testing.T) {
-		attr := constantComputedStringAttribute("desc")
-		if len(attr.PlanModifiers) != 1 {
-			t.Fatalf("constantComputedStringAttribute has %d plan modifiers, want 1", len(attr.PlanModifiers))
-		}
-		req := planmodifier.StringRequest{
-			Path:        path.Root("ikeid"),
-			State:       priorState,
-			ConfigValue: types.StringNull(),     // computed: never set in config
-			StateValue:  types.StringValue("1"), // prior value from state
-			PlanValue:   types.StringUnknown(),  // unknown after an in-place Update
-		}
-		resp := &planmodifier.StringResponse{PlanValue: types.StringUnknown()}
-		attr.PlanModifiers[0].PlanModifyString(context.Background(), req, resp)
-		if got := resp.PlanValue.ValueString(); got != "1" {
-			t.Fatalf("UseStateForUnknown did not carry prior value forward: got %q, want %q", got, "1")
+func (m *ipsecPhase1Mock) handler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		m.mu.Lock()
+		defer m.mu.Unlock()
+
+		switch {
+		case r.URL.Path == "/api/v2/vpn/ipsec/phase1s" && r.Method == http.MethodGet:
+			filter := r.URL.Query().Get("descr__exact")
+			out := []map[string]any{}
+			for i, a := range m.items {
+				if filter != "" && a["descr"] != filter {
+					continue
+				}
+				cp := map[string]any{"id": i, "ikeid": a["ikeid"]}
+				for k, v := range a {
+					cp[k] = v
+				}
+				out = append(out, cp)
+			}
+			writeEnvelope(w, 200, out)
+
+		case r.URL.Path == "/api/v2/vpn/ipsec/phase1" && r.Method == http.MethodPost:
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				writeEnvelope(w, 400, nil)
+				return
+			}
+			delete(body, "apply")
+			m.ikeid++
+			body["ikeid"] = m.ikeid
+			m.items = append(m.items, body)
+			idx := len(m.items) - 1
+			resp := map[string]any{"id": idx, "ikeid": m.ikeid}
+			for k, v := range body {
+				resp[k] = v
+			}
+			writeEnvelope(w, 200, resp)
+
+		case r.URL.Path == "/api/v2/vpn/ipsec/phase1" && r.Method == http.MethodPatch:
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				writeEnvelope(w, 400, nil)
+				return
+			}
+			idx := int(body["id"].(float64))
+			if idx < 0 || idx >= len(m.items) {
+				writeEnvelope(w, 404, nil)
+				return
+			}
+			delete(body, "apply")
+			delete(body, "id")
+			// ikeid is system-assigned and Update does not repopulate it, so
+			// the stored value must survive an in-place update unchanged.
+			ikeid := m.items[idx]["ikeid"]
+			for k, v := range body {
+				m.items[idx][k] = v
+			}
+			m.items[idx]["ikeid"] = ikeid
+			resp := map[string]any{"id": idx, "ikeid": ikeid}
+			for k, v := range m.items[idx] {
+				resp[k] = v
+			}
+			writeEnvelope(w, 200, resp)
+
+		case r.URL.Path == "/api/v2/vpn/ipsec/phase1" && r.Method == http.MethodDelete:
+			idx := int(mustFloat(r.URL.Query().Get("id")))
+			if idx < 0 || idx >= len(m.items) {
+				writeEnvelope(w, 404, nil)
+				return
+			}
+			m.items = append(m.items[:idx], m.items[idx+1:]...)
+			writeEnvelope(w, 200, nil)
+
+		default:
+			writeEnvelope(w, 404, nil)
 		}
 	})
+}
 
-	t.Run("int64", func(t *testing.T) {
-		attr := constantComputedIntAttribute("desc")
-		if len(attr.PlanModifiers) != 1 {
-			t.Fatalf("constantComputedIntAttribute has %d plan modifiers, want 1", len(attr.PlanModifiers))
-		}
-		req := planmodifier.Int64Request{
-			Path:        path.Root("vpnid"),
-			State:       priorState,
-			ConfigValue: types.Int64Null(),
-			StateValue:  types.Int64Value(7),
-			PlanValue:   types.Int64Unknown(),
-		}
-		resp := &planmodifier.Int64Response{PlanValue: types.Int64Unknown()}
-		attr.PlanModifiers[0].PlanModifyInt64(context.Background(), req, resp)
-		if got := resp.PlanValue.ValueInt64(); got != 7 {
-			t.Fatalf("UseStateForUnknown did not carry prior value forward: got %d, want %d", got, 7)
-		}
+// TestAccIPsecPhase1ConstantIkeid verifies the observable behaviour that
+// constantComputed* exists to guarantee: a system-assigned ID (ikeid) survives
+// an in-place update of a non-key attribute unchanged, and the follow-up plan
+// is empty (no spurious "known after apply" diff). This exercises the real
+// resource lifecycle through an in-process mock rather than the framework's
+// UseStateForUnknown modifier in isolation.
+func TestAccIPsecPhase1ConstantIkeid(t *testing.T) {
+	mock := &ipsecPhase1Mock{}
+	srv := httptest.NewServer(mock.handler())
+	defer srv.Close()
+
+	resource.Test(t, resource.TestCase{
+		IsUnitTest:               true,
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: ipsecPhase1Config(srv.URL, "10.0.0.1"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("pfsense_ipsec_phase1.p1", "ikeid", "1"),
+					resource.TestCheckResourceAttr("pfsense_ipsec_phase1.p1", "remote_gateway", "10.0.0.1"),
+				),
+			},
+			{
+				Config: ipsecPhase1Config(srv.URL, "10.0.0.2"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("pfsense_ipsec_phase1.p1", "ikeid", "1"),
+					resource.TestCheckResourceAttr("pfsense_ipsec_phase1.p1", "remote_gateway", "10.0.0.2"),
+				),
+			},
+		},
 	})
+}
+
+func ipsecPhase1Config(url, gateway string) string {
+	return fmt.Sprintf(`
+provider "pfsense" {
+  url     = %q
+  api_key = "test-key"
+}
+
+resource "pfsense_ipsec_phase1" "p1" {
+  descr                 = "site-a"
+  iketype               = "ikev2"
+  protocol              = "inet"
+  interface             = "wan"
+  remote_gateway        = %q
+  authentication_method = "pre_shared_key"
+  pre_shared_key        = "secret"
+  myid_type             = "myaddress"
+  peerid_type           = "any"
+}
+`, url, gateway)
 }

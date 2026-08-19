@@ -114,11 +114,14 @@ func computedBoolAttribute(desc string) schema.BoolAttribute {
 }
 
 // constantComputedStringAttribute is a computed attribute whose value is a
-// system-assigned constant (the API assigns it once and never changes it).
-// UseStateForUnknown keeps the prior value across plans so an in-place Update
-// that does not repopulate these IDs never surfaces a spurious unknown->known
-// diff. Do NOT use for values derived from updatable config (e.g. a public key
-// derived from a private key): those must recompute when their inputs change.
+// system-assigned constant: the API assigns it once (e.g. an IKE ID) and the
+// resource's Update method does not repopulate it. UseStateForUnknown is
+// defensive pinning — on a normal in-place update Terraform core already
+// carries a computed-only value forward, so the modifier only fires when the
+// prior state is null (e.g. after import or a state upgrade) and keeps it
+// null rather than planning a spurious "known after apply". Do NOT use for
+// values derived from updatable config (e.g. a public key derived from a
+// private key): those must recompute when their inputs change.
 func constantComputedStringAttribute(desc string) schema.StringAttribute {
 	return schema.StringAttribute{
 		Computed:    true,
