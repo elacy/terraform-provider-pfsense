@@ -107,8 +107,10 @@ func TestNetworkInterfaceModelV0ToCurrent(t *testing.T) {
 	if cur.AdvDHCPPtRetry.ValueInt64() != 5 {
 		t.Errorf("AdvDHCPPtRetry = %d, want 5", cur.AdvDHCPPtRetry.ValueInt64())
 	}
-	if cur.AdvDHCPPtSelectTimeout.ValueInt64() != 0 {
-		t.Errorf("AdvDHCPPtSelectTimeout = %d, want 0", cur.AdvDHCPPtSelectTimeout.ValueInt64())
+	// adv_dhcp_pt_select_timeout = 0 is the SDKv2 zero value for an unset
+	// optional int, so it is normalised to null rather than carried over as 0.
+	if !cur.AdvDHCPPtSelectTimeout.IsNull() {
+		t.Errorf("AdvDHCPPtSelectTimeout = %v, want null (from adv_dhcp_pt_select_timeout = 0)", cur.AdvDHCPPtSelectTimeout)
 	}
 	if cur.AdvDHCPPtReboot.ValueInt64() != 10 {
 		t.Errorf("AdvDHCPPtReboot = %d, want 10", cur.AdvDHCPPtReboot.ValueInt64())
@@ -139,8 +141,10 @@ func TestNetworkInterfaceModelV0ToCurrent(t *testing.T) {
 	if cur.Spoofmac.ValueString() != "00:11:22:33:44:55" {
 		t.Errorf("Spoofmac = %q, want 00:11:22:33:44:55 (from spoof_mac)", cur.Spoofmac.ValueString())
 	}
-	if cur.Blockpriv.ValueBool() != false {
-		t.Errorf("Blockpriv = %v, want false (from block_private)", cur.Blockpriv.ValueBool())
+	// block_private = false is the SDKv2 zero value for an unset optional
+	// bool, so it is normalised to null rather than carried over as false.
+	if !cur.Blockpriv.IsNull() {
+		t.Errorf("Blockpriv = %v, want null (from block_private = false)", cur.Blockpriv)
 	}
 	if cur.Blockbogons.ValueBool() != true {
 		t.Errorf("Blockbogons = %v, want true (from block_bogons)", cur.Blockbogons.ValueBool())
@@ -175,8 +179,8 @@ func TestNetworkInterfaceModelV0ToCurrent(t *testing.T) {
 	if cur.Track6PrefixIDHex.ValueString() != "0" {
 		t.Errorf("Track6PrefixIDHex = %q, want 0 (from track_v6_prefix_id_hex)", cur.Track6PrefixIDHex.ValueString())
 	}
-	if cur.Typev4.ValueString() != "staticv4" {
-		t.Errorf("Typev4 = %q, want staticv4 (from type)", cur.Typev4.ValueString())
+	if cur.Typev4.ValueString() != "static" {
+		t.Errorf("Typev4 = %q, want static (from type = staticv4)", cur.Typev4.ValueString())
 	}
 	if cur.Typev6.ValueString() != "staticv6" {
 		t.Errorf("Typev6 = %q, want staticv6 (from type_v6)", cur.Typev6.ValueString())
@@ -229,6 +233,144 @@ func TestNetworkInterfaceModelV0ToCurrentEmptyStringRetypes(t *testing.T) {
 	}
 	if !cur.Subnetv6.IsNull() {
 		t.Errorf("Subnetv6 = %v, want null for empty string", cur.Subnetv6)
+	}
+}
+
+func TestNetworkInterfaceModelV0ToCurrentTypeMapping(t *testing.T) {
+	ctx := context.Background()
+
+	// The v0 `type` was validated with StringInSlice(["staticv4", "dhcp"]),
+	// so prior state can only hold those two values or "" (the SDKv2 zero
+	// value). The v1 `typev4` is Required and validated with
+	// OneOf("static", "dhcp", "none"), hence the explicit mapping.
+	for _, tc := range []struct {
+		name       string
+		typev4     string
+		typev6     string
+		wantTypev4 string
+		wantTypev6 string
+	}{
+		{name: "staticv4", typev4: "staticv4", typev6: "staticv6", wantTypev4: "static", wantTypev6: "staticv6"},
+		{name: "dhcp", typev4: "dhcp", typev6: "dhcp6", wantTypev4: "dhcp", wantTypev6: "dhcp6"},
+		{name: "unset", typev4: "", typev6: "", wantTypev4: "none", wantTypev6: "none"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			prior := networkInterfaceModelV0{
+				If:          types.StringValue("wan"),
+				Description: types.StringValue("WAN"),
+				Type:        types.StringValue(tc.typev4),
+				TypeV6:      types.StringValue(tc.typev6),
+			}
+
+			cur, diags := prior.toCurrent(ctx)
+			if diags.HasError() {
+				t.Fatalf("unexpected diagnostics: %s", diags)
+			}
+			if diags.WarningsCount() != 0 {
+				t.Errorf("unexpected warnings: %s", diags.Warnings())
+			}
+			if cur.Typev4.ValueString() != tc.wantTypev4 {
+				t.Errorf("Typev4 = %q, want %q (from type = %q)", cur.Typev4.ValueString(), tc.wantTypev4, tc.typev4)
+			}
+			// typev4 is Required in v1, so it must never end up null.
+			if cur.Typev4.IsNull() {
+				t.Errorf("Typev4 is null; the v1 attribute is Required")
+			}
+			if cur.Typev6.ValueString() != tc.wantTypev6 {
+				t.Errorf("Typev6 = %q, want %q (from type_v6 = %q)", cur.Typev6.ValueString(), tc.wantTypev6, tc.typev6)
+			}
+		})
+	}
+}
+
+func TestNetworkInterfaceModelV0ToCurrentUnknownTypeWarns(t *testing.T) {
+	ctx := context.Background()
+
+	// Nothing outside the v0 domain should reach state, but if it does it is
+	// reported and replaced with "none" rather than failing the v1 OneOf
+	// validator on the next plan.
+	prior := networkInterfaceModelV0{
+		If:          types.StringValue("wan"),
+		Description: types.StringValue("WAN"),
+		Type:        types.StringValue("ppp"),
+	}
+
+	cur, diags := prior.toCurrent(ctx)
+	if diags.HasError() {
+		t.Fatalf("unexpected error diagnostics: %s", diags)
+	}
+	if diags.WarningsCount() != 1 {
+		t.Fatalf("warnings = %d, want 1: %s", diags.WarningsCount(), diags)
+	}
+	if cur.Typev4.ValueString() != "none" {
+		t.Errorf("Typev4 = %q, want none for an out-of-domain v0 type", cur.Typev4.ValueString())
+	}
+}
+
+func TestNetworkInterfaceModelV0ToCurrentZeroValueNormalisation(t *testing.T) {
+	ctx := context.Background()
+
+	// SDKv2 persists unset optional bools as false and unset optional ints as
+	// 0; both must become null so an unconfigured attribute does not show a
+	// false→null / 0→null diff on the next plan.
+	prior := networkInterfaceModelV0{
+		If:                        types.StringValue("lan"),
+		Description:               types.StringValue("LAN"),
+		Enable:                    types.BoolValue(false),
+		BlockPrivate:              types.BoolValue(false),
+		BlockBogons:               types.BoolValue(false),
+		IpV6UseV4Iface:            types.BoolValue(false),
+		AdvDhcpConfigAdvanced:     types.BoolValue(false),
+		AdvDhcpConfigFileOverride: types.BoolValue(false),
+		Mtu:                       types.Int64Value(0),
+		AliasSubnet:               types.Int64Value(0),
+		AdvDhcpPtTimeout:          types.Int64Value(0),
+		AdvDhcpPtRetry:            types.Int64Value(0),
+		AdvDhcpPtSelectTimeout:    types.Int64Value(0),
+		AdvDhcpPtReboot:           types.Int64Value(0),
+		AdvDhcpPtBackoffCutoff:    types.Int64Value(0),
+		AdvDhcpPtInitialInterval:  types.Int64Value(0),
+		Prefix6RdV4Plen:           types.Int64Value(0),
+		Subnet:                    types.Int64Value(0),
+	}
+
+	cur, diags := prior.toCurrent(ctx)
+	if diags.HasError() {
+		t.Fatalf("unexpected diagnostics: %s", diags)
+	}
+
+	for name, v := range map[string]types.Bool{
+		"Enable":                    cur.Enable,
+		"Blockpriv":                 cur.Blockpriv,
+		"Blockbogons":               cur.Blockbogons,
+		"Ipv6usev4iface":            cur.Ipv6usev4iface,
+		"AdvDHCPConfigAdvanced":     cur.AdvDHCPConfigAdvanced,
+		"AdvDHCPConfigFileOverride": cur.AdvDHCPConfigFileOverride,
+	} {
+		if !v.IsNull() {
+			t.Errorf("%s = %v, want null for the SDKv2 false zero value", name, v)
+		}
+	}
+
+	for name, v := range map[string]types.Int64{
+		"MTU":                      cur.MTU,
+		"AliasSubnet":              cur.AliasSubnet,
+		"AdvDHCPPtTimeout":         cur.AdvDHCPPtTimeout,
+		"AdvDHCPPtRetry":           cur.AdvDHCPPtRetry,
+		"AdvDHCPPtSelectTimeout":   cur.AdvDHCPPtSelectTimeout,
+		"AdvDHCPPtReboot":          cur.AdvDHCPPtReboot,
+		"AdvDHCPPtBackoffCutoff":   cur.AdvDHCPPtBackoffCutoff,
+		"AdvDHCPPtInitialInterval": cur.AdvDHCPPtInitialInterval,
+		"Prefix6rdV4plen":          cur.Prefix6rdV4plen,
+	} {
+		if !v.IsNull() {
+			t.Errorf("%s = %v, want null for the SDKv2 0 zero value", name, v)
+		}
+	}
+
+	// `subnet` is Required in v1, so it is never normalised to null.
+	if cur.Subnet.IsNull() {
+		t.Errorf("Subnet = null, want the carried-over 0 (the v1 attribute is Required)")
 	}
 }
 
@@ -320,8 +462,8 @@ func TestNetworkInterfaceUpgradeStateV0To1(t *testing.T) {
 	if got.Descr.ValueString() != "WAN" {
 		t.Errorf("Descr = %q, want WAN", got.Descr.ValueString())
 	}
-	if got.Typev4.ValueString() != "staticv4" {
-		t.Errorf("Typev4 = %q, want staticv4", got.Typev4.ValueString())
+	if got.Typev4.ValueString() != "static" {
+		t.Errorf("Typev4 = %q, want static", got.Typev4.ValueString())
 	}
 	if got.Ipaddr.ValueString() != "10.0.0.1" {
 		t.Errorf("Ipaddr = %q, want 10.0.0.1", got.Ipaddr.ValueString())

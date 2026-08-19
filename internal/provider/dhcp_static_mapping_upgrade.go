@@ -116,10 +116,11 @@ func (r *dhcpStaticMappingResource) upgradeStateV0To1(ctx context.Context, req r
 //	arp_table_static_entry → arp_table_static_entry
 //
 // defaultleasetime, maxleasetime, winsserver and ntpserver are new in version
-// 1 and have no version-0 source, so they are left null. Optional strings go
-// through emptyToNull so the SDKv2 "" zero value does not land in version-1
-// state as an empty string where the framework means null. The computed "id"
-// (interface|mac) is set by the StateUpgrader, not here.
+// 1 and have no version-0 source, so they are left null. Optional attributes
+// go through the zero-value normalisers — emptyToNull for strings,
+// falseToNull for the `arp_table_static_entry` bool — so the SDKv2 "" / false
+// zero values do not land in version-1 state where the framework means null.
+// The computed "id" (interface|mac) is set by the StateUpgrader, not here.
 func (m dhcpStaticMappingModelV0) toCurrent(ctx context.Context) (dhcpStaticMappingModel, diag.Diagnostics) {
 	var diags diag.Diagnostics
 
@@ -135,7 +136,7 @@ func (m dhcpStaticMappingModelV0) toCurrent(ctx context.Context) (dhcpStaticMapp
 		DNSServer:           m.DNSServers,
 		WINSServer:          types.ListNull(types.StringType),
 		NTPServer:           types.ListNull(types.StringType),
-		ARPTableStaticEntry: m.ARPTableStaticEntry,
+		ARPTableStaticEntry: falseToNull(m.ARPTableStaticEntry),
 		Descr:               emptyToNull(m.Description),
 	}, diags
 }

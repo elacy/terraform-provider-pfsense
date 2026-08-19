@@ -155,56 +155,121 @@ func (r *networkInterfaceResource) upgradeStateV0To1(ctx context.Context, req re
 }
 
 // toCurrent maps every v0 value to its v1 home (renames, retypes, dropped
-// fields, and v1-only fields left null). Optional strings go through
-// emptyToNull so the SDKv2 "" zero value does not land in v1 state as an empty
-// string where the framework means null.
+// fields, and v1-only fields left null). Optional attributes go through the
+// zero-value normalisers — emptyToNull for strings, falseToNull for bools,
+// zeroToNull for integers — so the SDKv2 "" / false / 0 zero values do not
+// land in v1 state where the framework means null. Required v1 attributes are
+// never normalised (see the `subnet` note below), and `type`/`type_v6` are
+// remapped onto the v1 value domains.
 func (m networkInterfaceModelV0) toCurrent(ctx context.Context) (networkInterfaceModel, diag.Diagnostics) {
 	var diags diag.Diagnostics
 	var cur networkInterfaceModel
 
 	cur.If = m.If
-	cur.Enable = m.Enable
+	cur.Enable = falseToNull(m.Enable)
 	cur.Descr = m.Description
 	cur.Spoofmac = emptyToNull(m.SpoofMac)
-	cur.MTU = m.Mtu
+	cur.MTU = zeroToNull(m.Mtu)
 	cur.Mss = upgradeStringToInt64(m.Mss, "mss", "pfsense_interface", &diags)
 	cur.Media = emptyToNull(m.Media)
 	// cur.Mediaopt: no v0 equivalent; left null.
-	cur.Blockpriv = m.BlockPrivate
-	cur.Blockbogons = m.BlockBogons
-	cur.Typev4 = emptyToNull(m.Type)
+	cur.Blockpriv = falseToNull(m.BlockPrivate)
+	cur.Blockbogons = falseToNull(m.BlockBogons)
+	cur.Typev4 = networkInterfaceTypev4ToCurrent(m.Type, &diags)
 	cur.Ipaddr = emptyToNull(m.IpAddress)
+	// `subnet` is Required in v1, so it must never be null: an unset v0
+	// `subnet` (SDKv2 zero value 0) is carried over as 0 rather than
+	// normalised away. See the "optional in v1, required in v2" note in
+	// upgrade-analysis.md — such a resource needs a hand-edited config
+	// before the next plan will succeed either way.
 	cur.Subnet = m.Subnet
 	cur.Gateway = emptyToNull(m.Gateway)
 	cur.Dhcphostname = emptyToNull(m.DhcpHostname)
 	cur.AliasAddress = emptyToNull(m.AliasAddress)
-	cur.AliasSubnet = m.AliasSubnet
+	cur.AliasSubnet = zeroToNull(m.AliasSubnet)
 	cur.Dhcprejectfrom = m.DhcpRejectFrom
-	cur.AdvDHCPConfigAdvanced = m.AdvDhcpConfigAdvanced
+	cur.AdvDHCPConfigAdvanced = falseToNull(m.AdvDhcpConfigAdvanced)
 	// cur.AdvDHCPPtValues: no v0 equivalent; left null.
-	cur.AdvDHCPPtTimeout = m.AdvDhcpPtTimeout
-	cur.AdvDHCPPtRetry = m.AdvDhcpPtRetry
-	cur.AdvDHCPPtSelectTimeout = m.AdvDhcpPtSelectTimeout
-	cur.AdvDHCPPtReboot = m.AdvDhcpPtReboot
-	cur.AdvDHCPPtBackoffCutoff = m.AdvDhcpPtBackoffCutoff
-	cur.AdvDHCPPtInitialInterval = m.AdvDhcpPtInitialInterval
+	cur.AdvDHCPPtTimeout = zeroToNull(m.AdvDhcpPtTimeout)
+	cur.AdvDHCPPtRetry = zeroToNull(m.AdvDhcpPtRetry)
+	cur.AdvDHCPPtSelectTimeout = zeroToNull(m.AdvDhcpPtSelectTimeout)
+	cur.AdvDHCPPtReboot = zeroToNull(m.AdvDhcpPtReboot)
+	cur.AdvDHCPPtBackoffCutoff = zeroToNull(m.AdvDhcpPtBackoffCutoff)
+	cur.AdvDHCPPtInitialInterval = zeroToNull(m.AdvDhcpPtInitialInterval)
 	cur.AdvDHCPSendOptions = emptyToNull(m.AdvDhcpSendOptions)
 	cur.AdvDHCPRequestOptions = emptyToNull(m.AdvDhcpRequestOptions)
 	cur.AdvDHCPRequiredOptions = emptyToNull(m.AdvDhcpRequiredOptions)
 	cur.AdvDHCPOptionModifiers = emptyToNull(m.AdvDhcpOptionModifiers)
-	cur.AdvDHCPConfigFileOverride = m.AdvDhcpConfigFileOverride
+	cur.AdvDHCPConfigFileOverride = falseToNull(m.AdvDhcpConfigFileOverride)
 	cur.AdvDHCPConfigFileOverridePath = emptyToNull(m.AdvDhcpConfigFileOverrideFile)
-	cur.Typev6 = emptyToNull(m.TypeV6)
+	cur.Typev6 = networkInterfaceTypev6ToCurrent(m.TypeV6)
 	cur.Ipaddrv6 = emptyToNull(m.IpAddressV6)
 	cur.Subnetv6 = upgradeStringToInt64(m.SubnetV6, "subnet_v6", "pfsense_interface", &diags)
 	cur.Gatewayv6 = emptyToNull(m.GatewayV6)
-	cur.Ipv6usev4iface = m.IpV6UseV4Iface
+	cur.Ipv6usev4iface = falseToNull(m.IpV6UseV4Iface)
 	// cur.Slaacusev4iface: no v0 equivalent; left null.
 	cur.Prefix6rd = emptyToNull(m.PrefixV6Rd)
 	cur.Gateway6rd = emptyToNull(m.Gateway6Rd)
-	cur.Prefix6rdV4plen = m.Prefix6RdV4Plen
+	cur.Prefix6rdV4plen = zeroToNull(m.Prefix6RdV4Plen)
 	cur.Track6Interface = emptyToNull(m.TrackV6Interface)
 	cur.Track6PrefixIDHex = emptyToNull(m.TrackV6PrefixIdHex)
 
 	return cur, diags
+}
+
+// networkInterfaceTypev4ToCurrent maps the v0 `type` value onto the v1
+// `typev4` domain.
+//
+// v0 validated `type` with StringInSlice(["staticv4", "dhcp"]), so the only
+// values that can appear in prior state are "staticv4", "dhcp" and "" (the
+// SDKv2 zero value for an unset optional string). v1 makes `typev4` Required
+// and validates it with OneOf("static", "dhcp", "none"), so "staticv4" has to
+// be renamed and the unset case has to become the explicit "none":
+//
+//	"staticv4" -> "static"
+//	"dhcp"     -> "dhcp"
+//	""         -> "none"
+//
+// emptyToNull is deliberately NOT used here: `typev4` is Required in v1 and
+// must never be null. Anything outside the v0 domain is reported as a warning
+// (as with the v0-only ip_protocol = "inet46" in firewall_rule_upgrade.go)
+// and mapped to "none", because carrying it over verbatim would only fail the
+// OneOf validator on the next plan.
+func networkInterfaceTypev4ToCurrent(v types.String, diags *diag.Diagnostics) types.String {
+	switch typev4 := v.ValueString(); {
+	case v.IsNull() || v.IsUnknown() || typev4 == "":
+		return types.StringValue("none")
+	case typev4 == "staticv4":
+		return types.StringValue("static")
+	case typev4 == "dhcp":
+		return types.StringValue("dhcp")
+	default:
+		diags.AddWarning(
+			"Unsupported interface type value replaced during state upgrade",
+			"The v0 interface set `type = \""+typev4+"\"`, but the v2 `typev4` attribute only accepts "+
+				"\"static\", \"dhcp\" or \"none\". The value was migrated as \"none\" so the upgraded state "+
+				"stays valid. Set `typev4` explicitly in your configuration to the addressing mode this "+
+				"interface actually uses, then re-apply.",
+		)
+		return types.StringValue("none")
+	}
+}
+
+// networkInterfaceTypev6ToCurrent maps the v0 `type_v6` value onto the v1
+// `typev6` domain.
+//
+// The v1 OneOf ("staticv6", "dhcp6", "slaac", "6rd", "track6", "6to4",
+// "none") is a superset of the v0 StringInSlice, so every configured value
+// carries over unchanged. Only the SDKv2 "" zero value needs mapping: `typev6`
+// is Optional, but "none" (not null) is its explicit "no IPv6" value and is
+// what pfSense reports back for such an interface, so "" becomes "none" to
+// match what the first Read would write.
+func networkInterfaceTypev6ToCurrent(v types.String) types.String {
+	if v.IsUnknown() {
+		return v
+	}
+	if v.IsNull() || v.ValueString() == "" {
+		return types.StringValue("none")
+	}
+	return v
 }

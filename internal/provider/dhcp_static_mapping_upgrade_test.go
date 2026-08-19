@@ -184,6 +184,24 @@ func TestDHCPStaticMappingUpgradeStateV0To1MissingID(t *testing.T) {
 
 // TestDHCPStaticMappingModelV0ToCurrent unit-tests the pure mapping on a
 // representative version-0 model.
+func TestDHCPStaticMappingModelV0ToCurrentZeroValueNormalisation(t *testing.T) {
+	ctx := context.Background()
+
+	// arp_table_static_entry = false is the SDKv2 zero value for an unset
+	// optional bool, so it is normalised to null.
+	current, diags := (dhcpStaticMappingModelV0{
+		Interface:           types.StringValue("lan"),
+		MAC:                 types.StringValue("00:11:22:33:44:55"),
+		ARPTableStaticEntry: types.BoolValue(false),
+	}).toCurrent(ctx)
+	if diags.HasError() {
+		t.Fatalf("unexpected diagnostics: %s", diags)
+	}
+	if !current.ARPTableStaticEntry.IsNull() {
+		t.Errorf("ARPTableStaticEntry = %v, want null for the SDKv2 false zero value", current.ARPTableStaticEntry)
+	}
+}
+
 func TestDHCPStaticMappingModelV0ToCurrent(t *testing.T) {
 	ctx := context.Background()
 

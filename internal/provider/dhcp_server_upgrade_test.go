@@ -94,8 +94,9 @@ func TestDhcpServerModelV0ToCurrent(t *testing.T) {
 func TestDhcpServerModelV0ToCurrentDenyUnknownFalseAndNull(t *testing.T) {
 	ctx := context.Background()
 
-	// deny_unknown=false -> null. The v1 `denyunknown` attribute only accepts
-	// "enabled" or "class"; "off" is expressed by leaving it unset.
+	// deny_unknown=false -> "disabled". On pfsense_services_dhcp_server the
+	// `denyunknown` domain is "enabled"/"disabled", so the off state has a
+	// real spelling and is not normalised away.
 	cur, diags := (dhcpServerModelV0{
 		Interface:    types.StringValue("lan"),
 		DenyUnknown:  types.BoolValue(false),
@@ -104,8 +105,8 @@ func TestDhcpServerModelV0ToCurrentDenyUnknownFalseAndNull(t *testing.T) {
 	if diags.HasError() {
 		t.Fatalf("unexpected diagnostics: %s", diags)
 	}
-	if !cur.DenyUnknown.IsNull() {
-		t.Errorf("DenyUnknown = %v, want null (from deny_unknown=false)", cur.DenyUnknown)
+	if cur.DenyUnknown.ValueString() != "disabled" {
+		t.Errorf("DenyUnknown = %v, want \"disabled\" (from deny_unknown=false)", cur.DenyUnknown)
 	}
 	// max_lease_time="" -> null, not a parse error.
 	if !cur.MaxLease.IsNull() {
@@ -121,6 +122,27 @@ func TestDhcpServerModelV0ToCurrentDenyUnknownFalseAndNull(t *testing.T) {
 	}
 	if !cur.DenyUnknown.IsNull() {
 		t.Errorf("DenyUnknown = %v, want null (from null deny_unknown)", cur.DenyUnknown)
+	}
+}
+
+func TestDhcpServerModelV0ToCurrentZeroValueNormalisation(t *testing.T) {
+	ctx := context.Background()
+
+	// SDKv2 persists unset optional bools as false and unset optional ints as
+	// 0; both must become null so they do not show a spurious diff.
+	cur, diags := (dhcpServerModelV0{
+		Interface:        types.StringValue("lan"),
+		Enable:           types.BoolValue(false),
+		DefaultLeaseTime: types.Int64Value(0),
+	}).toCurrent(ctx)
+	if diags.HasError() {
+		t.Fatalf("unexpected diagnostics: %s", diags)
+	}
+	if !cur.Enable.IsNull() {
+		t.Errorf("Enable = %v, want null for the SDKv2 false zero value", cur.Enable)
+	}
+	if !cur.DefaultLease.IsNull() {
+		t.Errorf("DefaultLease = %v, want null for the SDKv2 0 zero value", cur.DefaultLease)
 	}
 }
 

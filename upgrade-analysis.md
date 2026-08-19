@@ -96,14 +96,40 @@ four renamed resources run the same upgrader once the `state mv` has been done.
 | `pfsense_firewall_alias`                    | `description` → `descr`; `target` (list of `{address, description}`) flattened to `address` (list of string) + `detail` (list of string). `id` is the alias name. |
 | `pfsense_firewall_rule`                     | `ack_queue`→`ackqueue`, `default_queue`→`defaultqueue`, `description`→`descr`, `dn_pipe`→`dnpipe`, `pdn_pipe`→`pdnpipe`, `ip_protocol`→`ipprotocol`, `schedule`→`sched`, `state_type`→`statetype`, `icmp_type`→`icmptype`; `tcp_flag` split into `tcp_flags_set` / `tcp_flags_out_of` / `tcp_flags_any`. `id` becomes the rule description. |
 | `pfsense_interface_vlan`                    | `description` → `descr`; `if`, `tag` and `pcp` carry over unchanged; the new computed `vlanif` is populated from the old `id` (which was the generated VLAN interface name). `id` becomes `"<if>\|<tag>"`. |
-| `pfsense_network_interface` *(was `pfsense_interface`)* | `description`→`descr`, `spoof_mac`→`spoofmac`, `block_private`→`blockpriv`, `block_bogons`→`blockbogons`, `type`→`typev4`, `type_v6`→`typev6`, `ip_address`→`ipaddr`, `ip_address_v6`→`ipaddrv6`, `gateway_v6`→`gatewayv6`, `dhcp_hostname`→`dhcphostname`, `dhcp_reject_from`→`dhcprejectfrom`, `subnet_v6`→`subnetv6`, `prefix_v6_rd`→`prefix_6rd`, `gateway_6_rd`→`gateway_6rd`, `prefix_6_rd_v4_plen`→`prefix_6rd_v4plen`, `track_v6_interface`→`track6_interface`, `track_v6_prefix_id_hex`→`track6_prefix_id_hex`, `ip_v6_use_v4_iface`→`ipv6usev4iface`, `adv_dhcp_config_file_override_file`→`adv_dhcp_config_file_override_path`. `mss` and `subnet_v6` are retyped from string to number. `dhcp_cv_pt` and `dhcp_vlan_enable` have no v2 equivalent and are dropped. `id` becomes the interface key (`if`) — the v1 id was the interface's descriptive name. |
-| `pfsense_services_dhcp_server` *(was `pfsense_dhcp_server`)* | `default_lease_time`→`defaultleasetime`, `max_lease_time`→`maxleasetime` (retyped string→number), `dns_server`→`dnsserver`, `deny_unknown` (bool) →`denyunknown` (string: `true`→`"enabled"`, `false`/unset→ unset). `id` is the interface. **`domain_search_list`, `mac_allow_list`, `mac_deny_list` and `ignore_bootp` are dropped — see the note below.** |
+| `pfsense_network_interface` *(was `pfsense_interface`)* | `description`→`descr`, `spoof_mac`→`spoofmac`, `block_private`→`blockpriv`, `block_bogons`→`blockbogons`, `type`→`typev4` (values remapped, see section 4.4), `type_v6`→`typev6`, `ip_address`→`ipaddr`, `ip_address_v6`→`ipaddrv6`, `gateway_v6`→`gatewayv6`, `dhcp_hostname`→`dhcphostname`, `dhcp_reject_from`→`dhcprejectfrom`, `subnet_v6`→`subnetv6`, `prefix_v6_rd`→`prefix_6rd`, `gateway_6_rd`→`gateway_6rd`, `prefix_6_rd_v4_plen`→`prefix_6rd_v4plen`, `track_v6_interface`→`track6_interface`, `track_v6_prefix_id_hex`→`track6_prefix_id_hex`, `ip_v6_use_v4_iface`→`ipv6usev4iface`, `adv_dhcp_config_file_override_file`→`adv_dhcp_config_file_override_path`. `mss` and `subnet_v6` are retyped from string to number. `dhcp_cv_pt` and `dhcp_vlan_enable` have no v2 equivalent and are dropped. `id` becomes the interface key (`if`) — the v1 id was the interface's descriptive name. |
+| `pfsense_services_dhcp_server` *(was `pfsense_dhcp_server`)* | `default_lease_time`→`defaultleasetime`, `max_lease_time`→`maxleasetime` (retyped string→number), `dns_server`→`dnsserver`, `deny_unknown` (bool) →`denyunknown` (string: `true`→`"enabled"`, `false`→`"disabled"`). `id` is the interface. **`domain_search_list`, `mac_allow_list`, `mac_deny_list` and `ignore_bootp` are dropped — see the note below.** |
 | `pfsense_services_dhcp_static_mapping` *(was `pfsense_dhcp_static_mapping`)* | `interface`→`parent_id`, `client_identifier`→`cid`, `ip_address`→`ipaddr`, `host_name`→`hostname`, `description`→`descr`, `domain_search_list`→`domainsearchlist`, `dns_servers`→`dnsserver`. `id` becomes `"<interface>\|<mac>"` (was `"<interface>.<mac>"`). |
 | `pfsense_services_dns_resolver_host_override` *(was `pfsense_unbound_host_override`)* | `dns` (an FQDN) split at the first dot into `host` + `domain`; `ip_addresses`→`ip`; `description`→`descr`; `aliases[].host_name`→`aliases[].host`, `aliases[].domain_name`→`aliases[].domain`, `aliases[].description`→`aliases[].descr`. `id` becomes `"<host>\|<domain>"` (was the FQDN). |
 
-Optional string attributes that were never configured are normalised from the
-SDKv2 empty-string zero value (`""`) back to null, so `terraform plan
--refresh=false` does not report a spurious `"" → null` diff on them.
+### Zero-value normalisation (`""`, `false`, `0` → null)
+
+Optional attributes that were never configured are normalised from their SDKv2
+zero value back to null, so `terraform plan -refresh=false` does not report a
+spurious diff on every attribute the practitioner never set:
+
+| SDKv2 type       | Persisted zero value | Migrated to |
+| ---------------- | -------------------- | ----------- |
+| `TypeString`     | `""`                 | null        |
+| `TypeBool`       | `false`              | null        |
+| `TypeInt`        | `0`                  | null        |
+
+The SDKv2 stored an unset optional attribute and an explicitly configured zero
+value identically, so this mapping is **ambiguous and one-way**: an attribute
+that was deliberately set to `false` or `0` is also migrated to null. That is
+the safe direction — the attribute is optional, so null carries no meaning of
+its own, and the first `Read` after the upgrade re-reads the real value from
+the pfSense API, so state self-heals on the first refresh.
+
+Normalisation is applied **only to attributes that are optional in v2**.
+Required v2 attributes keep whatever the v0 state held (see section 4.5), and
+a handful of attributes deliberately keep their zero value because it is the
+correct carried-over value — each one carries a comment in
+`internal/provider/*_upgrade.go` explaining why:
+
+- `pfsense_interface_vlan.pcp` — `0` is also the pfSense default priority code
+  point, so the API reports `0` back either way.
+- `pfsense_services_dhcp_server.denyunknown` — the v1 bool `false` maps to the
+  real v2 value `"disabled"`, not to null (see the field table above).
 
 ### `pfsense_services_dhcp_server` — attributes not carried over
 
@@ -135,11 +161,13 @@ The full old→new field mappings are encoded in
 
 ---
 
-## 4. Breaking changes — `pfsense_firewall_rule`
+## 4. Breaking changes
 
-The v2 `pfsense_firewall_rule` resource is a rewrite against the pfSense
-`/api/v2/firewall/rule` endpoint. Three v1 behaviours do not survive the
-rewrite.
+Sections 4.1–4.3 cover `pfsense_firewall_rule`, which is a rewrite against the
+pfSense `/api/v2/firewall/rule` endpoint. Section 4.4 covers the
+`pfsense_network_interface` addressing-type values, and section 4.5 covers
+attributes that were optional in v1 and are required in v2 across both
+resources.
 
 ### 4.1 Floating rules are no longer modelled
 
@@ -194,6 +222,80 @@ Check for affected rules before upgrading:
 terraform state pull | grep '"ip_protocol": *"inet46"'
 ```
 
+### 4.4 `pfsense_network_interface` — `type` values are remapped to `typev4`
+
+The v1 `type` attribute was optional and validated against
+`["staticv4", "dhcp"]`. The v2 `typev4` attribute is **required** and validates
+against `["static", "dhcp", "none"]`, so the value has to be translated rather
+than copied. The StateUpgrader applies this mapping:
+
+| v1 `type`      | v2 `typev4` | Notes                                              |
+| -------------- | ----------- | -------------------------------------------------- |
+| `staticv4`     | `static`    | renamed                                             |
+| `dhcp`         | `dhcp`      | unchanged                                           |
+| `""` (unset)   | `none`      | `typev4` is required, so it can never be left null  |
+| anything else  | `none`      | **warning** — should not occur; see below           |
+
+Nothing outside that set can be produced by the v1 provider (its validator
+rejected it), but if hand-edited state contains one the upgrader emits a
+**warning** and writes `none`, so the upgraded state stays valid instead of
+failing the v2 `OneOf` validator on the next plan.
+
+**Update your configuration to match**: an interface that had `type = "staticv4"`
+must now say `typev4 = "static"`, and an interface that never set `type` must
+say `typev4 = "none"` (or the mode it actually uses).
+
+`type_v6` → `typev6` needs no value translation — the v2 domain
+(`staticv6`, `dhcp6`, `slaac`, `6rd`, `track6`, `6to4`, `none`) is a superset
+of the v1 one. The only change is that an unset (`""`) v1 `type_v6` becomes the
+explicit `none`, which is what pfSense reports back for an interface with no
+IPv6 configuration.
+
+Check which interfaces are affected before upgrading:
+
+```bash
+terraform state pull | grep -E '"type": *"(staticv4|dhcp)?"'
+```
+
+### 4.5 Attributes that were optional in v1 and are required in v2
+
+Some attributes that the v1 provider allowed you to omit are **required** in
+v2. The StateUpgrader carries over whatever v1 held (normalising the SDKv2 zero
+value to null for the string attributes, per section 3), but Terraform will
+reject the *configuration* until you add the attribute by hand — the next plan
+fails with `The argument "<name>" is required, but no definition was found`.
+
+| Resource                    | Attribute (v1 → v2)          | v1        | v2       |
+| --------------------------- | ---------------------------- | --------- | -------- |
+| `pfsense_firewall_rule`     | `ip_protocol` → `ipprotocol` | optional  | required |
+| `pfsense_firewall_rule`     | `source` → `source`          | optional  | required |
+| `pfsense_firewall_rule`     | `destination` → `destination`| optional  | required |
+| `pfsense_firewall_rule`     | `description` → `descr`      | optional  | required (and the resource identity — see 4.2, this one **blocks** the upgrade) |
+| `pfsense_network_interface` | `type` → `typev4`            | optional  | required (value remapped — see 4.4) |
+| `pfsense_network_interface` | `ip_address` → `ipaddr`      | optional  | required |
+| `pfsense_network_interface` | `subnet` → `subnet`          | optional  | required |
+
+`subnet` is the one case where the SDKv2 zero value is carried over verbatim:
+it is an integer and required in v2, so writing null would leave the state
+inconsistent with the schema. An interface that never set `subnet` therefore
+arrives in v2 state as `subnet = 0` and needs a real value in the
+configuration.
+
+Find the resources you have to hand-edit before upgrading:
+
+```bash
+# firewall rules missing ip_protocol / source / destination
+terraform state pull | grep -E '"(ip_protocol|source|destination)": *""'
+
+# interfaces missing type / ip_address / subnet
+terraform state pull | grep -E '"(type|ip_address)": *""'
+terraform state pull | grep -E '"subnet": *0'
+```
+
+Add the missing arguments to your configuration (using the values pfSense
+actually has, visible in the UI or via `terraform state pull`) before running
+`terraform plan`.
+
 ---
 
 ## 5. Recommended migration order
@@ -208,9 +310,14 @@ terraform state pull | grep '"ip_protocol": *"inet46"'
 6. Triage the DHCP servers (section 3): grep for `domain_search_list`,
    `mac_allow_list`, `mac_deny_list` and `ignore_bootp`, and plan the
    `pfsense_services_dhcp_address_pool` resources that will replace them.
-7. `terraform plan` — expect **no** diffs (StateUpgraders migrate in place);
+7. Rewrite `type` as `typev4` on every `pfsense_network_interface`
+   (`staticv4` → `static`, unset → `none`) — section 4.4.
+8. Add the arguments that became required in v2 (section 4.5): `ipprotocol`,
+   `source` and `destination` on firewall rules; `typev4`, `ipaddr` and
+   `subnet` on network interfaces.
+9. `terraform plan` — expect **no** diffs (StateUpgraders migrate in place);
    any remaining "forces replacement" on a migrated resource is a bug to report.
-8. `terraform apply`.
+10. `terraform apply`.
 
 If a resource does force replacement after following this guide, file an issue
 with the resource type and a redacted snippet of the `plan` diff — do not apply.

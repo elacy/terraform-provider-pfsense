@@ -107,19 +107,20 @@ func dhcpServerPriorID(req resource.UpgradeStateRequest, prior dhcpServerModelV0
 }
 
 // toCurrent maps every v0 value to its v1 home (renames, retypes, dropped
-// fields, and v1-only fields left null). Optional strings go through
-// emptyToNull so the SDKv2 "" zero value does not land in v1 state as an empty
-// string where the framework means null.
+// fields, and v1-only fields left null). Optional attributes go through the
+// zero-value normalisers — emptyToNull for strings, falseToNull for bools,
+// zeroToNull for integers — so the SDKv2 "" / false / 0 zero values do not
+// land in v1 state where the framework means null.
 func (m dhcpServerModelV0) toCurrent(ctx context.Context) (dhcpServerModel, diag.Diagnostics) {
 	var diags diag.Diagnostics
 	var cur dhcpServerModel
 
 	cur.Interface = m.Interface
-	cur.Enable = m.Enable
+	cur.Enable = falseToNull(m.Enable)
 	cur.RangeFrom = emptyToNull(m.RangeFrom)
 	cur.RangeTo = emptyToNull(m.RangeTo)
 	cur.Domain = emptyToNull(m.Domain)
-	cur.DefaultLease = m.DefaultLeaseTime
+	cur.DefaultLease = zeroToNull(m.DefaultLeaseTime)
 	cur.MaxLease = upgradeStringToInt64(m.MaxLeaseTime, "max_lease_time", "pfsense_dhcp_server", &diags)
 	cur.Gateway = emptyToNull(m.Gateway)
 	cur.DNSServer = m.DNSServer
@@ -138,16 +139,22 @@ func (m dhcpServerModelV0) toCurrent(ctx context.Context) (dhcpServerModel, diag
 // dhcpServerDenyUnknownToCurrent converts the v0 `deny_unknown` bool to the v1
 // `denyunknown` string.
 //
-// The v1 attribute only accepts "enabled" or "class" (see the identically
-// named field on pfsense_services_dhcp_address_pool), so there is no string
-// that means "deny unknown clients is off" — that state is expressed by
-// leaving the attribute unset. deny_unknown = false (which is also what the
-// SDKv2 persisted for an unset optional bool) therefore maps to null.
+// On pfsense_services_dhcp_server `denyunknown` is an unvalidated optional
+// string whose domain is "enabled" / "disabled" (unlike the identically named
+// attribute on pfsense_services_dhcp_address_pool, which is "enabled" /
+// "class"). Both states of the v0 bool therefore have a direct v1 spelling:
+// true -> "enabled", false -> "disabled". This is not normalised to null the
+// way the other optional zero values are — "disabled" is the real off value
+// here, and it is what pfSense reports back for a server that does not deny
+// unknown clients.
 func dhcpServerDenyUnknownToCurrent(v types.Bool) types.String {
-	if v.IsNull() || !v.ValueBool() {
+	if v.IsNull() || v.IsUnknown() {
 		return types.StringNull()
 	}
-	return types.StringValue("enabled")
+	if v.ValueBool() {
+		return types.StringValue("enabled")
+	}
+	return types.StringValue("disabled")
 }
 
 // dhcpServerDroppedAttributeWarnings reports the v0 attributes that the v1

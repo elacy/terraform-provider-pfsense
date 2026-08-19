@@ -54,8 +54,10 @@ func TestRuleModelV0ToCurrent(t *testing.T) {
 	if cur.Direction.ValueString() != "in" {
 		t.Errorf("Direction = %q, want in", cur.Direction.ValueString())
 	}
-	if cur.Disabled.ValueBool() != false {
-		t.Errorf("Disabled = %v, want false", cur.Disabled.ValueBool())
+	// disabled = false is the SDKv2 zero value for an unset optional bool, so
+	// it is normalised to null rather than carried over as false.
+	if !cur.Disabled.IsNull() {
+		t.Errorf("Disabled = %v, want null (from disabled = false)", cur.Disabled)
 	}
 	if cur.Destination.ValueString() != "10.0.0.0/24" {
 		t.Errorf("Destination = %q, want 10.0.0.0/24", cur.Destination.ValueString())
@@ -218,6 +220,33 @@ func TestRuleModelV0ToCurrentNoTCPFlags(t *testing.T) {
 	}
 	if cur.TCPFlagsSet.IsNull() || len(cur.TCPFlagsSet.Elements()) != 0 {
 		t.Errorf("TCPFlagsSet = %v, want empty list", cur.TCPFlagsSet)
+	}
+}
+
+func TestRuleModelV0ToCurrentZeroValueNormalisation(t *testing.T) {
+	ctx := context.Background()
+
+	// SDKv2 persists unset optional bools as false; carrying that over would
+	// give every rule that never set disabled/log/quick a false→null diff.
+	cur, diags := (firewallRuleModelV0{
+		Description: types.StringValue("rule"),
+		Type:        types.StringValue("pass"),
+		IPProtocol:  types.StringValue("inet"),
+		Disabled:    types.BoolValue(false),
+		Log:         types.BoolValue(false),
+		Quick:       types.BoolValue(false),
+	}).toCurrent(ctx)
+	if diags.HasError() {
+		t.Fatalf("unexpected diagnostics: %s", diags)
+	}
+	for name, v := range map[string]types.Bool{
+		"Disabled": cur.Disabled,
+		"Log":      cur.Log,
+		"Quick":    cur.Quick,
+	} {
+		if !v.IsNull() {
+			t.Errorf("%s = %v, want null for the SDKv2 false zero value", name, v)
+		}
 	}
 }
 

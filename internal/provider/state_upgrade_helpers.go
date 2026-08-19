@@ -72,6 +72,51 @@ func emptyToNull(v types.String) types.String {
 	return v
 }
 
+// falseToNull normalises an optional bool carried over from SDKv2 state.
+//
+// This is the bool counterpart of emptyToNull: the SDKv2 persisted an unset
+// optional bool as its zero value `false`, while the framework distinguishes
+// `false` from "unset". Copying `false` verbatim into version-1 state makes
+// every practitioner who never configured the attribute see a spurious
+// `false` → null diff on the next plan.
+//
+// The ambiguity is unavoidable and one-way: SDKv2 state cannot tell an
+// explicit `false` from an unset attribute, so both become null. That is the
+// safe direction — the attribute is Optional, so a null carries no meaning of
+// its own, and the first Read after the upgrade repopulates it from the
+// pfSense API. Never use this on a Required attribute.
+func falseToNull(v types.Bool) types.Bool {
+	if v.IsUnknown() {
+		return v
+	}
+	if v.IsNull() || !v.ValueBool() {
+		return types.BoolNull()
+	}
+	return v
+}
+
+// zeroToNull normalises an optional integer carried over from SDKv2 state.
+//
+// This is the integer counterpart of emptyToNull and falseToNull: the SDKv2
+// persisted an unset optional int as its zero value `0`, so copying it
+// verbatim produces a spurious `0` → null diff on every attribute the
+// practitioner never configured.
+//
+// As with falseToNull the mapping is ambiguous and one-way — an explicit `0`
+// and an unset attribute are indistinguishable in SDKv2 state and both become
+// null — and self-heals on the first Read. Never use this on a Required
+// attribute, nor where `0` is a meaningful configured value that the API does
+// not report back (see the `pcp` note in interface_vlan_upgrade.go).
+func zeroToNull(v types.Int64) types.Int64 {
+	if v.IsUnknown() {
+		return v
+	}
+	if v.IsNull() || v.ValueInt64() == 0 {
+		return types.Int64Null()
+	}
+	return v
+}
+
 // upgradeStringToInt64 converts a version-0 string attribute that held a
 // number into the version-1 integer type. An empty string (the SDKv2 zero
 // value for an unset optional string) maps to null; a non-numeric value

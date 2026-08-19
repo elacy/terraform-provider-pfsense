@@ -171,10 +171,11 @@ func (r *firewallRuleResource) upgradeStateV0To1(ctx context.Context, req resour
 //	tcp_flag   -> tcp_flags_set + tcp_flags_out_of + tcp_flags_any (split)
 //	floating   -> DROPPED (warning when true)
 //
-// Optional strings go through emptyToNull so the SDKv2 "" zero value does not
-// land in v1 state as an empty string where the framework means null. The
-// v1-only attributes (dscp, tag) are left null so Read repopulates them. Both
-// v1 lists are built with explicit element types; a null prior list stays null.
+// Optional strings go through emptyToNull and the optional bools (disabled,
+// log, quick) through falseToNull, so the SDKv2 "" / false zero values do not
+// land in v1 state where the framework means null. The v1-only attributes
+// (dscp, tag) are left null so Read repopulates them. Both v1 lists are built
+// with explicit element types; a null prior list stays null.
 func (m firewallRuleModelV0) toCurrent(ctx context.Context) (firewallRuleModel, diag.Diagnostics) {
 	var diags diag.Diagnostics
 
@@ -192,8 +193,8 @@ func (m firewallRuleModelV0) toCurrent(ctx context.Context) (firewallRuleModel, 
 		Destination:     emptyToNull(m.Destination),
 		DestinationPort: emptyToNull(m.DestinationPort),
 		Descr:           types.StringValue(descr),
-		Disabled:        m.Disabled,
-		Log:             m.Log,
+		Disabled:        falseToNull(m.Disabled),
+		Log:             falseToNull(m.Log),
 		StateType:       emptyToNull(m.StateType),
 		Gateway:         emptyToNull(m.Gateway),
 		Sched:           emptyToNull(m.Schedule),
@@ -201,7 +202,7 @@ func (m firewallRuleModelV0) toCurrent(ctx context.Context) (firewallRuleModel, 
 		PdPipe:          emptyToNull(m.PdPipe),
 		DefaultQueue:    emptyToNull(m.DefaultQueue),
 		AckQueue:        emptyToNull(m.AckQueue),
-		Quick:           m.Quick,
+		Quick:           falseToNull(m.Quick),
 		Direction:       emptyToNull(m.Direction),
 	}
 
