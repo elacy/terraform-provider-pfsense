@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"context"
 	"encoding/json"
 	"math"
 	"strconv"
@@ -158,5 +159,174 @@ func FuzzGetInt(f *testing.F) {
 		// Exercise both a present key and an absent one.
 		_ = getInt(m, "k")
 		_ = getInt(m, "missing")
+	})
+}
+
+// FuzzFormatID asserts formatID never panics on any JSON-decoded id value and
+// leaves string ids unchanged (pfSense object ids are either numeric or
+// string; a mangled id could resolve to the wrong object).
+func FuzzFormatID(f *testing.F) {
+	f.Add([]byte(`42`))
+	f.Add([]byte(`"42"`))
+	f.Add([]byte(`"wan"`))
+	f.Add([]byte(`null`))
+	f.Add([]byte(`3.14`))
+	f.Add([]byte(`[1,2,3]`))
+	f.Add([]byte(`{"a":1}`))
+	f.Add([]byte(`true`))
+	f.Fuzz(func(t *testing.T, raw []byte) {
+		var id any
+		if err := json.Unmarshal(raw, &id); err != nil {
+			t.Skip()
+		}
+		got := formatID(id)
+		// String ids must round-trip unchanged.
+		if s, ok := id.(string); ok && got != s {
+			t.Fatalf("formatID(%q) = %q, want the string unchanged", s, got)
+		}
+	})
+}
+
+// FuzzObjectKey asserts objectKey never panics on any JSON-decoded map value,
+// for both a present and an absent key.
+func FuzzObjectKey(f *testing.F) {
+	f.Add([]byte(`{"k":"v"}`))
+	f.Add([]byte(`{"k":42}`))
+	f.Add([]byte(`{"k":true}`))
+	f.Add([]byte(`{"k":null}`))
+	f.Add([]byte(`{"k":[1,2]}`))
+	f.Add([]byte(`{"k":{"nested":"obj"}}`))
+	f.Add([]byte(`{}`))
+	f.Fuzz(func(t *testing.T, raw []byte) {
+		var m map[string]any
+		if err := json.Unmarshal(raw, &m); err != nil {
+			t.Skip()
+		}
+		_ = objectKey(m, "k")
+		_ = objectKey(m, "missing")
+	})
+}
+
+// FuzzGetString asserts getString never panics on any JSON-decoded map value,
+// for both a present and an absent key.
+func FuzzGetString(f *testing.F) {
+	f.Add([]byte(`{"k":"v"}`))
+	f.Add([]byte(`{"k":42}`))
+	f.Add([]byte(`{"k":1.5}`))
+	f.Add([]byte(`{"k":true}`))
+	f.Add([]byte(`{"k":null}`))
+	f.Add([]byte(`{"k":[1,"x"]}`))
+	f.Add([]byte(`{}`))
+	f.Fuzz(func(t *testing.T, raw []byte) {
+		var m map[string]any
+		if err := json.Unmarshal(raw, &m); err != nil {
+			t.Skip()
+		}
+		_ = getString(m, "k")
+		_ = getString(m, "missing")
+	})
+}
+
+// FuzzGetBool asserts getBool never panics on any JSON-decoded map value, for
+// both a present and an absent key.
+func FuzzGetBool(f *testing.F) {
+	f.Add([]byte(`{"k":true}`))
+	f.Add([]byte(`{"k":false}`))
+	f.Add([]byte(`{"k":"true"}`))
+	f.Add([]byte(`{"k":1}`))
+	f.Add([]byte(`{"k":null}`))
+	f.Add([]byte(`{"k":[true]}`))
+	f.Add([]byte(`{}`))
+	f.Fuzz(func(t *testing.T, raw []byte) {
+		var m map[string]any
+		if err := json.Unmarshal(raw, &m); err != nil {
+			t.Skip()
+		}
+		_ = getBool(m, "k")
+		_ = getBool(m, "missing")
+	})
+}
+
+// FuzzGetStringSlice asserts getStringSlice never panics on any JSON-decoded
+// map value, coerces a bare string to a one-element slice, and never invents
+// elements: everything it returns must originate from a string or float64
+// element of the input list.
+func FuzzGetStringSlice(f *testing.F) {
+	f.Add([]byte(`{"k":["a","b"]}`))
+	f.Add([]byte(`{"k":"single"}`))
+	f.Add([]byte(`{"k":[1,2.5,"x",true,null,{"o":1},["n"]]}`))
+	f.Add([]byte(`{"k":null}`))
+	f.Add([]byte(`{"k":[]}`))
+	f.Add([]byte(`{}`))
+	f.Fuzz(func(t *testing.T, raw []byte) {
+		var m map[string]any
+		if err := json.Unmarshal(raw, &m); err != nil {
+			t.Skip()
+		}
+		got := getStringSlice(m, "k")
+		_ = getStringSlice(m, "missing")
+		v, ok := m["k"]
+		if !ok || v == nil {
+			if got != nil {
+				t.Fatalf("getStringSlice(missing/nil key) = %v, want nil", got)
+			}
+			return
+		}
+		switch val := v.(type) {
+		case string:
+			if len(got) != 1 || got[0] != val {
+				t.Fatalf("getStringSlice(single string %q) = %v, want [%q]", val, got, val)
+			}
+		case []any:
+			if len(got) > len(val) {
+				t.Fatalf("getStringSlice returned %d elements for %d-element input: %v", len(got), len(val), got)
+			}
+			for _, g := range got {
+				if !sliceElemOriginatesFrom(val, g) {
+					t.Fatalf("getStringSlice returned %q, which does not originate from any input element %v", g, val)
+				}
+			}
+		}
+	})
+}
+
+// sliceElemOriginatesFrom reports whether g is either a string element of arr
+// or the decimal rendering of a float64 element of arr (the only two shapes
+// getStringSlice is allowed to emit).
+func sliceElemOriginatesFrom(arr []any, g string) bool {
+	for _, e := range arr {
+		switch e := e.(type) {
+		case string:
+			if e == g {
+				return true
+			}
+		case float64:
+			if strconv.FormatFloat(e, 'f', -1, 64) == g {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// FuzzAliasDecode exercises the firewall_alias Read decode path end-to-end:
+// arbitrary JSON decoded to map[string]any is fed through the same
+// getString/getStringSlice calls the model Read makes, then through the
+// framework value wrappers. The invariant is panic-freedom: a malformed API
+// response must never crash the Read.
+func FuzzAliasDecode(f *testing.F) {
+	f.Add([]byte(`{"type":"host","descr":"d","address":["10.0.0.1/32"],"detail":[]}`))
+	f.Add([]byte(`{}`))
+	f.Add([]byte(`null`))
+	f.Add([]byte(`{"type":42,"descr":true,"address":"10.0.0.1","detail":[1,2]}`))
+	f.Fuzz(func(t *testing.T, raw []byte) {
+		var obj map[string]any
+		if err := json.Unmarshal(raw, &obj); err != nil {
+			t.Skip()
+		}
+		_ = strValue(getString(obj, "type"))
+		_ = strValue(getString(obj, "descr"))
+		_ = strListValue(context.Background(), getStringSlice(obj, "address"))
+		_ = strListValue(context.Background(), getStringSlice(obj, "detail"))
 	})
 }
