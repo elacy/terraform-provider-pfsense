@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"math"
 
 	"github.com/elacy/terraform-provider-pfsense/v2/internal/client"
 	"github.com/hashicorp/terraform-plugin-framework/attr"
@@ -398,7 +399,13 @@ func atoi64(s string) int64 {
 		if c < '0' || c > '9' {
 			break
 		}
-		n = n*10 + int64(c-'0')
+		d := int64(c - '0')
+		if n > (math.MaxInt64-d)/10 {
+			// Saturate instead of wrapping negative: a negative ID would
+			// resolve to the wrong object and could be updated/deleted.
+			return math.MaxInt64
+		}
+		n = n*10 + d
 	}
 	return n
 }
