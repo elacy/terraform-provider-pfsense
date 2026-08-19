@@ -243,9 +243,9 @@ func (m firewallRuleModelV0) toCurrent(ctx context.Context) (firewallRuleModel, 
 	// to null so the Optional tcp_flags_out_of/tcp_flags_set attributes plan
 	// null instead of surfacing a spurious [] -> null diff on the first plan.
 	if len(m.TCPFlag) == 0 {
-		// "any" is the unset default for tcp_flags_any (Optional, not
-		// Computed), so leaving it null avoids a spurious true->null diff on
-		// the next plan.
+		// tcp_flags_any is a bool whose SDKv2 zero value is false, not true;
+		// leaving it null avoids a spurious false -> null diff on the next
+		// plan (same rule as the non-empty branch below).
 		cur.TCPFlagsAny = types.BoolNull()
 		cur.TCPFlagsOutOf = types.ListNull(types.StringType)
 		cur.TCPFlagsSet = types.ListNull(types.StringType)

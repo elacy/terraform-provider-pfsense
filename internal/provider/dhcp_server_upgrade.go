@@ -41,10 +41,13 @@ var _ resource.ResourceWithUpgradeState = (*dhcpServerResource)(nil)
 // dhcpServerPriorSchemaV0 is the SDKv2 pfsense_dhcp_server schema (from the
 // provider v1 properties map) translated to framework attributes. It mirrors
 // the v0 state exactly: same attribute names, same required/optional flags,
-// SDKv2 types mapped per TYPE TRANSLATION rules (including max_lease_time as
-// a String, since that is how it was stored in v0). The implicit SDKv2 `id`
-// attribute is deliberately excluded (the v1 id is derived from the natural
-// key `interface`).
+// SDKv2 types mapped per TYPE TRANSLATION rules. The type asymmetry between
+// the two lease-time attributes is real v1 behaviour, not a transcription
+// bug: `default_lease_time` was already an integer in v1, while
+// `max_lease_time` was a string in v1 (it can be "infinite") and is retyped to
+// the v2 integer in toCurrent via upgradeStringToInt64. The implicit SDKv2
+// `id` attribute is deliberately excluded (the v1 id is derived from the
+// natural key `interface`).
 var dhcpServerPriorSchemaV0 = schema.Schema{
 	Attributes: map[string]schema.Attribute{
 		"default_lease_time": schema.Int64Attribute{Optional: true},

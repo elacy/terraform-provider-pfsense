@@ -9,6 +9,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-go/tfprotov6"
+	"github.com/hashicorp/terraform-plugin-go/tftypes"
 )
 
 func TestInterfaceVLANModelV0ToCurrent(t *testing.T) {
@@ -198,5 +199,86 @@ func TestInterfaceVLANUpgradeStateMap(t *testing.T) {
 		if upgrader.PriorSchema.Attributes[name] != nil {
 			t.Errorf("PriorSchema must not contain the v1-only attribute %s", name)
 		}
+	}
+}
+
+// TestInterfaceVLANUpgradeStateV0To1RawJSON decodes the prior state from raw
+// JSON against interfaceVLANPriorSchemaV0 (not via priorState.Set), so that a
+// type or name mismatch between the PriorSchema and what SDKv2 actually wrote
+// would fail the unmarshal. Unlike the other upgraders, the implicit SDKv2
+// `id` IS read here: it becomes the v1 computed `vlanif` attribute, while the
+// v1 resource id is the natural key "<if>|<tag>".
+func TestInterfaceVLANUpgradeStateV0To1RawJSON(t *testing.T) {
+	ctx := context.Background()
+
+	rawJSON, err := json.Marshal(map[string]any{
+		"id":          "vlan0.100",
+		"if":          "vmx0",
+		"tag":         100,
+		"pcp":         3,
+		"description": "guest VLAN",
+	})
+	if err != nil {
+		t.Fatalf("marshal prior raw state: %v", err)
+	}
+	raw := &tfprotov6.RawState{JSON: rawJSON}
+
+	// The upgrader reads the implicit id from RawState into vlanif.
+	if got, want := priorResourceID(raw), "vlan0.100"; got != want {
+		t.Errorf("priorResourceID() = %q, want %q", got, want)
+	}
+
+	priorValue, err := raw.UnmarshalWithOpts(
+		interfaceVLANPriorSchemaV0.Type().TerraformType(ctx),
+		tfprotov6.UnmarshalOpts{
+			ValueFromJSONOpts: tftypes.ValueFromJSONOpts{IgnoreUndefinedAttributes: true},
+		},
+	)
+	if err != nil {
+		t.Fatalf("unmarshal prior raw state: %v", err)
+	}
+
+	req := resource.UpgradeStateRequest{
+		RawState: raw,
+		State:    &tfsdk.State{Raw: priorValue, Schema: interfaceVLANPriorSchemaV0},
+	}
+	var resp resource.UpgradeStateResponse
+
+	var r interfaceVLANResource
+	var sreq resource.SchemaRequest
+	var sresp resource.SchemaResponse
+	r.Schema(ctx, sreq, &sresp)
+	resp.State.Schema = sresp.Schema
+
+	r.upgradeStateV0To1(ctx, req, &resp)
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("upgrade returned diagnostics: %s", resp.Diagnostics)
+	}
+
+	var got interfaceVLANModel
+	resp.Diagnostics.Append(resp.State.Get(ctx, &got)...)
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("decode upgraded state: %s", resp.Diagnostics)
+	}
+
+	// The v1 id is the natural key "<if>|<tag>".
+	if want := "vmx0|100"; got.ID.ValueString() != want {
+		t.Errorf("ID = %q, want %q", got.ID.ValueString(), want)
+	}
+	// The old implicit id is carried over as the computed vlanif attribute.
+	if want := "vlan0.100"; got.VLANIf.ValueString() != want {
+		t.Errorf("VLANIf = %q, want the prior id %q", got.VLANIf.ValueString(), want)
+	}
+	if got, want := got.If.ValueString(), "vmx0"; got != want {
+		t.Errorf("If = %q, want %q", got, want)
+	}
+	if got, want := got.Tag.ValueInt64(), int64(100); got != want {
+		t.Errorf("Tag = %d, want %d", got, want)
+	}
+	if got, want := got.PCP.ValueInt64(), int64(3); got != want {
+		t.Errorf("PCP = %d, want %d", got, want)
+	}
+	if got, want := got.Descr.ValueString(), "guest VLAN"; got != want {
+		t.Errorf("Descr = %q, want %q", got, want)
 	}
 }

@@ -2,12 +2,15 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-go/tfprotov6"
+	"github.com/hashicorp/terraform-plugin-go/tftypes"
 )
 
 func TestRuleModelV0ToCurrent(t *testing.T) {
@@ -524,5 +527,105 @@ func TestRuleUpgradeStateMap(t *testing.T) {
 	// prior schema: the new id is the rule description.
 	if upgrader.PriorSchema.Attributes["id"] != nil {
 		t.Fatalf("PriorSchema must not contain the implicit id attribute")
+	}
+}
+
+// TestRuleUpgradeStateV0To1RawJSON decodes the prior state from raw JSON
+// against firewallRulePriorSchemaV0 (not via priorState.Set), so that a type
+// or name mismatch between the PriorSchema and what SDKv2 actually wrote would
+// fail the unmarshal. It asserts the v1 id derives from the rule `description`
+// (the raw id is ignored) and that the v0 `tcp_flag` list of objects splits
+// into the v1 tcp_flags_set / tcp_flags_out_of lists.
+func TestRuleUpgradeStateV0To1RawJSON(t *testing.T) {
+	ctx := context.Background()
+
+	rawJSON, err := json.Marshal(map[string]any{
+		"id":          "stale_id",
+		"type":        "block",
+		"description": "block test",
+		"interface":   []string{"wan"},
+		"direction":   "in",
+		"ip_protocol": "inet",
+		"protocol":    "tcp",
+		"source":      "any",
+		"destination": "any",
+		"quick":       true,
+		"tcp_flag": []map[string]any{
+			{"flag": "syn", "present": true},
+			{"flag": "ack", "present": false},
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal prior raw state: %v", err)
+	}
+	raw := &tfprotov6.RawState{JSON: rawJSON}
+
+	priorValue, err := raw.UnmarshalWithOpts(
+		firewallRulePriorSchemaV0.Type().TerraformType(ctx),
+		tfprotov6.UnmarshalOpts{
+			ValueFromJSONOpts: tftypes.ValueFromJSONOpts{IgnoreUndefinedAttributes: true},
+		},
+	)
+	if err != nil {
+		t.Fatalf("unmarshal prior raw state: %v", err)
+	}
+
+	req := resource.UpgradeStateRequest{
+		RawState: raw,
+		State:    &tfsdk.State{Raw: priorValue, Schema: firewallRulePriorSchemaV0},
+	}
+	var resp resource.UpgradeStateResponse
+
+	var r firewallRuleResource
+	var sreq resource.SchemaRequest
+	var sresp resource.SchemaResponse
+	r.Schema(ctx, sreq, &sresp)
+	resp.State.Schema = sresp.Schema
+
+	r.upgradeStateV0To1(ctx, req, &resp)
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("upgrade returned diagnostics: %s", resp.Diagnostics)
+	}
+
+	var got firewallRuleModel
+	resp.Diagnostics.Append(resp.State.Get(ctx, &got)...)
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("decode upgraded state: %s", resp.Diagnostics)
+	}
+
+	// The v1 id is the rule description; the raw id is ignored.
+	if got, want := got.ID.ValueString(), "block test"; got != want {
+		t.Errorf("ID = %q, want %q", got, want)
+	}
+	if got, want := got.Descr.ValueString(), "block test"; got != want {
+		t.Errorf("Descr = %q, want %q", got, want)
+	}
+
+	var interfaces []string
+	if diags := got.Interface.ElementsAs(ctx, &interfaces, false); diags.HasError() {
+		t.Fatalf("decoding interface list: %s", diags)
+	}
+	if len(interfaces) != 1 || interfaces[0] != "wan" {
+		t.Errorf("Interface = %v, want [wan]", interfaces)
+	}
+
+	// tcp_flag split: present==true flags land in tcp_flags_set, every listed
+	// flag lands in tcp_flags_out_of (in order), and tcp_flags_any stays null.
+	var setFlags []string
+	if diags := got.TCPFlagsSet.ElementsAs(ctx, &setFlags, false); diags.HasError() {
+		t.Fatalf("decoding tcp_flags_set list: %s", diags)
+	}
+	if len(setFlags) != 1 || setFlags[0] != "syn" {
+		t.Errorf("TCPFlagsSet = %v, want [syn]", setFlags)
+	}
+	var outOfFlags []string
+	if diags := got.TCPFlagsOutOf.ElementsAs(ctx, &outOfFlags, false); diags.HasError() {
+		t.Fatalf("decoding tcp_flags_out_of list: %s", diags)
+	}
+	if len(outOfFlags) != 2 || outOfFlags[0] != "syn" || outOfFlags[1] != "ack" {
+		t.Errorf("TCPFlagsOutOf = %v, want [syn ack]", outOfFlags)
+	}
+	if !got.TCPFlagsAny.IsNull() {
+		t.Errorf("TCPFlagsAny = %v, want null", got.TCPFlagsAny)
 	}
 }

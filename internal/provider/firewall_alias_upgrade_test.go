@@ -9,6 +9,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-go/tfprotov6"
+	"github.com/hashicorp/terraform-plugin-go/tftypes"
 )
 
 func TestAliasModelV0ToCurrent(t *testing.T) {
@@ -293,5 +294,106 @@ func TestAliasUpgradeStateMap(t *testing.T) {
 	// The implicit SDKv2 id must NOT be part of the prior schema.
 	if upgrader.PriorSchema.Attributes["id"] != nil {
 		t.Fatalf("PriorSchema must not contain the implicit id attribute")
+	}
+}
+
+// TestAliasUpgradeStateV0To1RawJSON decodes the prior state from raw JSON
+// against firewallAliasPriorSchemaV0 (not via priorState.Set), so that a type
+// or name mismatch between the PriorSchema and what SDKv2 actually wrote would
+// fail the unmarshal. It asserts the v1 id derives from `name` (the raw id is
+// ignored) and that the v0 `target` list of objects maps to the v1 `address`
+// and `detail` lists.
+func TestAliasUpgradeStateV0To1RawJSON(t *testing.T) {
+	ctx := context.Background()
+
+	rawJSON, err := json.Marshal(map[string]any{
+		"id":          "stale_id",
+		"name":        "web_servers",
+		"type":        "host",
+		"description": "web server addresses",
+		"target": []map[string]any{
+			{"address": "10.0.0.1", "description": "web1"},
+			{"address": "10.0.0.2", "description": "web2"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal prior raw state: %v", err)
+	}
+	raw := &tfprotov6.RawState{JSON: rawJSON}
+
+	priorValue, err := raw.UnmarshalWithOpts(
+		firewallAliasPriorSchemaV0.Type().TerraformType(ctx),
+		tfprotov6.UnmarshalOpts{
+			ValueFromJSONOpts: tftypes.ValueFromJSONOpts{IgnoreUndefinedAttributes: true},
+		},
+	)
+	if err != nil {
+		t.Fatalf("unmarshal prior raw state: %v", err)
+	}
+
+	req := resource.UpgradeStateRequest{
+		RawState: raw,
+		State:    &tfsdk.State{Raw: priorValue, Schema: firewallAliasPriorSchemaV0},
+	}
+	var resp resource.UpgradeStateResponse
+
+	var r firewallAliasResource
+	var sreq resource.SchemaRequest
+	var sresp resource.SchemaResponse
+	r.Schema(ctx, sreq, &sresp)
+	resp.State.Schema = sresp.Schema
+
+	r.upgradeStateV0To1(ctx, req, &resp)
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("upgrade returned diagnostics: %s", resp.Diagnostics)
+	}
+
+	var got firewallAliasModel
+	resp.Diagnostics.Append(resp.State.Get(ctx, &got)...)
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("decode upgraded state: %s", resp.Diagnostics)
+	}
+
+	// The v1 id is the natural key `name`; the raw id is ignored.
+	if got, want := got.ID.ValueString(), "web_servers"; got != want {
+		t.Errorf("ID = %q, want %q", got, want)
+	}
+	if got, want := got.Name.ValueString(), "web_servers"; got != want {
+		t.Errorf("Name = %q, want %q", got, want)
+	}
+	if got, want := got.Type.ValueString(), "host"; got != want {
+		t.Errorf("Type = %q, want %q", got, want)
+	}
+	if got, want := got.Descr.ValueString(), "web server addresses"; got != want {
+		t.Errorf("Descr = %q, want %q", got, want)
+	}
+
+	// The v0 target list flattens into the v1 address/detail lists.
+	var addresses []string
+	if diags := got.Address.ElementsAs(ctx, &addresses, false); diags.HasError() {
+		t.Fatalf("decoding address list: %s", diags)
+	}
+	wantAddresses := []string{"10.0.0.1", "10.0.0.2"}
+	if len(addresses) != len(wantAddresses) {
+		t.Fatalf("Address = %v, want %v", addresses, wantAddresses)
+	}
+	for i := range wantAddresses {
+		if addresses[i] != wantAddresses[i] {
+			t.Errorf("Address[%d] = %q, want %q", i, addresses[i], wantAddresses[i])
+		}
+	}
+
+	var details []string
+	if diags := got.Detail.ElementsAs(ctx, &details, false); diags.HasError() {
+		t.Fatalf("decoding detail list: %s", diags)
+	}
+	wantDetails := []string{"web1", "web2"}
+	if len(details) != len(wantDetails) {
+		t.Fatalf("Detail = %v, want %v", details, wantDetails)
+	}
+	for i := range wantDetails {
+		if details[i] != wantDetails[i] {
+			t.Errorf("Detail[%d] = %q, want %q", i, details[i], wantDetails[i])
+		}
 	}
 }

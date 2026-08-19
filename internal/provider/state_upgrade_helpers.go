@@ -83,8 +83,12 @@ func emptyToNull(v types.String) types.String {
 // The ambiguity is unavoidable and one-way: SDKv2 state cannot tell an
 // explicit `false` from an unset attribute, so both become null. That is the
 // safe direction — the attribute is Optional, so a null carries no meaning of
-// its own, and the first Read after the upgrade repopulates it from the
-// pfSense API. Never use this on a Required attribute.
+// its own, and the first Read after the upgrade repopulates the state value
+// from the pfSense API. That repopulates *state* only: because the attribute
+// is Optional and not Computed, a config that omits it may still plan a
+// persistent diff against the API's value on later refreshes — a
+// pre-existing resource-level behaviour the upgrader cannot change. Never use
+// this on a Required attribute.
 func falseToNull(v types.Bool) types.Bool {
 	if v.IsUnknown() {
 		return v
@@ -104,7 +108,9 @@ func falseToNull(v types.Bool) types.Bool {
 //
 // As with falseToNull the mapping is ambiguous and one-way — an explicit `0`
 // and an unset attribute are indistinguishable in SDKv2 state and both become
-// null — and self-heals on the first Read. Like emptyToNull it is also applied
+// null — and the state value self-heals on the first Read (which repopulates
+// state, not the plan: Optional-not-Computed attributes may still show a
+// persistent diff on later refreshes). Like emptyToNull it is also applied
 // to attributes that are Required in v2 but Optional in v0 (e.g. the network
 // interface `subnet`): a null there fails the next plan loudly instead of
 // silently carrying a semantically wrong zero value, and the break is
@@ -133,7 +139,9 @@ func zeroToNull(v types.Int64) types.Int64 {
 // mapping as falseToNull/zeroToNull: an explicit empty list and an unset list
 // are indistinguishable in SDKv2 state, and both become null. The attribute is
 // Optional, so null carries no meaning of its own and the first Read after the
-// upgrade repopulates it from the pfSense API. Do not use it where an empty
+// upgrade repopulates the state value from the pfSense API. (State, not plan:
+// an Optional-not-Computed attribute a config omits may still show a
+// persistent diff on later refreshes.) Do not use it where an empty
 // list is a meaningful configured value (see the TCP-flag note in
 // firewall_rule_upgrade.go).
 func emptyListToNull(ctx context.Context, v types.List) types.List {

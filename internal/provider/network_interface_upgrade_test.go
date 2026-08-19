@@ -10,6 +10,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-go/tfprotov6"
+	"github.com/hashicorp/terraform-plugin-go/tftypes"
 )
 
 func TestNetworkInterfaceModelV0ToCurrent(t *testing.T) {
@@ -545,5 +546,91 @@ func TestNetworkInterfaceUpgradeStateMap(t *testing.T) {
 	// The implicit SDKv2 id must NOT be part of the prior schema.
 	if upgrader.PriorSchema.Attributes["id"] != nil {
 		t.Fatalf("PriorSchema must not contain the implicit id attribute")
+	}
+}
+
+// TestNetworkInterfaceUpgradeStateV0To1RawJSON decodes the prior state from
+// raw JSON against networkInterfacePriorSchemaV0 (not via priorState.Set), so
+// that a type or name mismatch between the PriorSchema and what SDKv2 actually
+// wrote would fail the unmarshal. Only a representative subset of the large v0
+// model is supplied; the rest is handled by IgnoreUndefinedAttributes. It
+// asserts the v1 id derives from `if` (the raw id is ignored), description→
+// descr, ip_address→ipaddr, and that an unset v0 `type` becomes "none".
+func TestNetworkInterfaceUpgradeStateV0To1RawJSON(t *testing.T) {
+	ctx := context.Background()
+
+	rawJSON, err := json.Marshal(map[string]any{
+		"id":          "stale_id",
+		"if":          "wan",
+		"description": "WAN",
+		"type":        "",
+		"ip_address":  "10.0.0.1",
+		"subnet":      24,
+		"spoof_mac":   "00:11:22:33:44:55",
+	})
+	if err != nil {
+		t.Fatalf("marshal prior raw state: %v", err)
+	}
+	raw := &tfprotov6.RawState{JSON: rawJSON}
+
+	priorValue, err := raw.UnmarshalWithOpts(
+		networkInterfacePriorSchemaV0.Type().TerraformType(ctx),
+		tfprotov6.UnmarshalOpts{
+			ValueFromJSONOpts: tftypes.ValueFromJSONOpts{IgnoreUndefinedAttributes: true},
+		},
+	)
+	if err != nil {
+		t.Fatalf("unmarshal prior raw state: %v", err)
+	}
+
+	req := resource.UpgradeStateRequest{
+		RawState: raw,
+		State:    &tfsdk.State{Raw: priorValue, Schema: networkInterfacePriorSchemaV0},
+	}
+	var resp resource.UpgradeStateResponse
+
+	var r networkInterfaceResource
+	var sreq resource.SchemaRequest
+	var sresp resource.SchemaResponse
+	r.Schema(ctx, sreq, &sresp)
+	resp.State.Schema = sresp.Schema
+
+	r.upgradeStateV0To1(ctx, req, &resp)
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("upgrade returned diagnostics: %s", resp.Diagnostics)
+	}
+
+	var got networkInterfaceModel
+	resp.Diagnostics.Append(resp.State.Get(ctx, &got)...)
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("decode upgraded state: %s", resp.Diagnostics)
+	}
+
+	// The v1 id is the natural key `if`; the raw id is ignored.
+	if got, want := got.ID.ValueString(), "wan"; got != want {
+		t.Errorf("ID = %q, want %q", got, want)
+	}
+	if got, want := got.If.ValueString(), "wan"; got != want {
+		t.Errorf("If = %q, want %q", got, want)
+	}
+	// description -> descr
+	if got, want := got.Descr.ValueString(), "WAN"; got != want {
+		t.Errorf("Descr = %q, want %q", got, want)
+	}
+	// ip_address -> ipaddr
+	if got, want := got.Ipaddr.ValueString(), "10.0.0.1"; got != want {
+		t.Errorf("Ipaddr = %q, want %q", got, want)
+	}
+	if got, want := got.Subnet.ValueInt64(), int64(24); got != want {
+		t.Errorf("Subnet = %d, want %d", got, want)
+	}
+	// spoof_mac -> spoofmac
+	if got, want := got.Spoofmac.ValueString(), "00:11:22:33:44:55"; got != want {
+		t.Errorf("Spoofmac = %q, want %q", got, want)
+	}
+	// An unset v0 `type` (the SDKv2 "" zero value) becomes the explicit
+	// "none" because typev4 is Required in v1 and can never be null.
+	if got, want := got.Typev4.ValueString(), "none"; got != want {
+		t.Errorf("Typev4 = %q, want %q (from an empty v0 type)", got, want)
 	}
 }

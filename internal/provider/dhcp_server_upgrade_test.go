@@ -11,6 +11,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-go/tfprotov6"
+	"github.com/hashicorp/terraform-plugin-go/tftypes"
 )
 
 func TestDhcpServerModelV0ToCurrent(t *testing.T) {
@@ -366,5 +367,91 @@ func TestDhcpServerModelV0ToCurrentDroppedAttributeWarnings(t *testing.T) {
 	}).toCurrent(ctx)
 	if len(diags) != 0 {
 		t.Errorf("unset v0 attributes produced %d diagnostics, want none: %s", len(diags), diags)
+	}
+}
+
+// TestDhcpServerUpgradeStateV0To1RawJSON decodes the prior state from raw JSON
+// against dhcpServerPriorSchemaV0 (not via priorState.Set), so that a type or
+// name mismatch between the PriorSchema and what SDKv2 actually wrote would
+// fail the unmarshal. It asserts the v1 id derives from `interface` (the raw
+// id is ignored), max_lease_time is retyped from string to int64, and an unset
+// optional string lands as null.
+func TestDhcpServerUpgradeStateV0To1RawJSON(t *testing.T) {
+	ctx := context.Background()
+
+	rawJSON, err := json.Marshal(map[string]any{
+		"id":                 "stale_id",
+		"interface":          "lan",
+		"enable":             true,
+		"range_from":         "10.0.0.100",
+		"range_to":           "10.0.0.200",
+		"domain":             "example.com",
+		"default_lease_time": 7200,
+		"max_lease_time":     "7200",
+		"gateway":            "",
+		"dns_server":         []string{"1.1.1.1", "8.8.8.8"},
+		"deny_unknown":       true,
+	})
+	if err != nil {
+		t.Fatalf("marshal prior raw state: %v", err)
+	}
+	raw := &tfprotov6.RawState{JSON: rawJSON}
+
+	priorValue, err := raw.UnmarshalWithOpts(
+		dhcpServerPriorSchemaV0.Type().TerraformType(ctx),
+		tfprotov6.UnmarshalOpts{
+			ValueFromJSONOpts: tftypes.ValueFromJSONOpts{IgnoreUndefinedAttributes: true},
+		},
+	)
+	if err != nil {
+		t.Fatalf("unmarshal prior raw state: %v", err)
+	}
+
+	req := resource.UpgradeStateRequest{
+		RawState: raw,
+		State:    &tfsdk.State{Raw: priorValue, Schema: dhcpServerPriorSchemaV0},
+	}
+	var resp resource.UpgradeStateResponse
+
+	var r dhcpServerResource
+	var sreq resource.SchemaRequest
+	var sresp resource.SchemaResponse
+	r.Schema(ctx, sreq, &sresp)
+	resp.State.Schema = sresp.Schema
+
+	r.upgradeStateV0To1(ctx, req, &resp)
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("upgrade returned diagnostics: %s", resp.Diagnostics)
+	}
+
+	var got dhcpServerModel
+	resp.Diagnostics.Append(resp.State.Get(ctx, &got)...)
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("decode upgraded state: %s", resp.Diagnostics)
+	}
+
+	// The v1 id is the natural key `interface`; the raw id is ignored.
+	if got, want := got.ID.ValueString(), "lan"; got != want {
+		t.Errorf("ID = %q, want %q", got, want)
+	}
+	if got, want := got.Interface.ValueString(), "lan"; got != want {
+		t.Errorf("Interface = %q, want %q", got, want)
+	}
+	// max_lease_time was a v0 STRING and is retyped to int64.
+	if got, want := got.MaxLease.ValueInt64(), int64(7200); got != want {
+		t.Errorf("MaxLease = %d, want %d (from string %q)", got, want, "7200")
+	}
+	if got, want := got.DefaultLease.ValueInt64(), int64(7200); got != want {
+		t.Errorf("DefaultLease = %d, want %d", got, want)
+	}
+	// An unset optional string (gateway "") lands as null, not "".
+	if !got.Gateway.IsNull() {
+		t.Errorf("Gateway = %v, want null for the SDKv2 empty-string zero value", got.Gateway)
+	}
+	if got, want := got.DenyUnknown.ValueString(), "enabled"; got != want {
+		t.Errorf("DenyUnknown = %q, want %q (from deny_unknown=true)", got, want)
+	}
+	if got, want := listStringValues(t, got.DNSServer), []string{"1.1.1.1", "8.8.8.8"}; !equalStrings(got, want) {
+		t.Errorf("DNSServer = %v, want %v", got, want)
 	}
 }
