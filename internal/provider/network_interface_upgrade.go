@@ -2,10 +2,8 @@ package provider
 
 import (
 	"context"
-	"strconv"
 
 	"github.com/hashicorp/terraform-plugin-framework/diag"
-	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -18,8 +16,8 @@ import (
 // networkInterfaceModelV0 is the schema-version-0 (SDKv2-era) state model for
 // pfsense_interface. The tfsdk tags use the OLD attribute names so that
 // req.State.Get decodes the prior state verbatim. The implicit SDKv2 `id`
-// attribute is intentionally absent: it is carried over from req.RawState
-// instead (see networkInterfaceUpgradeStateV0To1).
+// attribute is intentionally absent: the version-1 id is the interface key
+// (`if`), which is Required in version 0 (see upgradeStateV0To1).
 type networkInterfaceModelV0 struct {
 	AdvDhcpConfigAdvanced         types.Bool   `tfsdk:"adv_dhcp_config_advanced"`
 	AdvDhcpConfigFileOverride     types.Bool   `tfsdk:"adv_dhcp_config_file_override"`
@@ -67,77 +65,73 @@ type networkInterfaceModelV0 struct {
 
 var _ resource.ResourceWithUpgradeState = (*networkInterfaceResource)(nil)
 
-// networkInterfacePriorSchema is the SDKv2 pfsense_interface schema (from the
+// networkInterfacePriorSchemaV0 is the SDKv2 pfsense_interface schema (from the
 // provider v1 properties map) translated to framework attributes. It mirrors
 // the v0 state exactly: same attribute names, same required/optional flags,
 // SDKv2 types mapped per TYPE TRANSLATION rules. The implicit SDKv2 `id`
-// attribute is deliberately excluded (it is carried over from RawState).
-func networkInterfacePriorSchema() schema.Schema {
-	return schema.Schema{
-		Attributes: map[string]schema.Attribute{
-			"adv_dhcp_config_advanced":           schema.BoolAttribute{Optional: true},
-			"adv_dhcp_config_file_override":      schema.BoolAttribute{Optional: true},
-			"adv_dhcp_config_file_override_file": schema.StringAttribute{Optional: true},
-			"adv_dhcp_option_modifiers":          schema.StringAttribute{Optional: true},
-			"adv_dhcp_pt_backoff_cutoff":         schema.Int64Attribute{Optional: true},
-			"adv_dhcp_pt_initial_interval":       schema.Int64Attribute{Optional: true},
-			"adv_dhcp_pt_reboot":                 schema.Int64Attribute{Optional: true},
-			"adv_dhcp_pt_retry":                  schema.Int64Attribute{Optional: true},
-			"adv_dhcp_pt_select_timeout":         schema.Int64Attribute{Optional: true},
-			"adv_dhcp_pt_timeout":                schema.Int64Attribute{Optional: true},
-			"adv_dhcp_request_options":           schema.StringAttribute{Optional: true},
-			"adv_dhcp_required_options":          schema.StringAttribute{Optional: true},
-			"adv_dhcp_send_options":              schema.StringAttribute{Optional: true},
-			"alias_address":                      schema.StringAttribute{Optional: true},
-			"alias_subnet":                       schema.Int64Attribute{Optional: true},
-			"block_bogons":                       schema.BoolAttribute{Optional: true},
-			"block_private":                      schema.BoolAttribute{Optional: true},
-			"description":                        schema.StringAttribute{Required: true},
-			"dhcp_cv_pt":                         schema.Int64Attribute{Optional: true},
-			"dhcp_hostname":                      schema.StringAttribute{Optional: true},
-			"dhcp_reject_from":                   schema.ListAttribute{ElementType: types.StringType, Optional: true},
-			"dhcp_vlan_enable":                   schema.BoolAttribute{Optional: true},
-			"enable":                             schema.BoolAttribute{Optional: true},
-			"gateway":                            schema.StringAttribute{Optional: true},
-			"gateway_6_rd":                       schema.StringAttribute{Optional: true},
-			"gateway_v6":                         schema.StringAttribute{Optional: true},
-			"if":                                 schema.StringAttribute{Required: true},
-			"ip_address":                         schema.StringAttribute{Optional: true},
-			"ip_address_v6":                      schema.StringAttribute{Optional: true},
-			"ip_v6_use_v4_iface":                 schema.BoolAttribute{Optional: true},
-			"media":                              schema.StringAttribute{Optional: true},
-			"mss":                                schema.StringAttribute{Optional: true},
-			"mtu":                                schema.Int64Attribute{Optional: true},
-			"prefix_6_rd_v4_plen":                schema.Int64Attribute{Optional: true},
-			"prefix_v6_rd":                       schema.StringAttribute{Optional: true},
-			"spoof_mac":                          schema.StringAttribute{Optional: true},
-			"subnet":                             schema.Int64Attribute{Optional: true},
-			"subnet_v6":                          schema.StringAttribute{Optional: true},
-			"track_v6_interface":                 schema.StringAttribute{Optional: true},
-			"track_v6_prefix_id_hex":             schema.StringAttribute{Optional: true},
-			"type":                               schema.StringAttribute{Optional: true},
-			"type_v6":                            schema.StringAttribute{Optional: true},
-		},
-	}
+// attribute is deliberately excluded (the version-1 id is derived from `if`).
+var networkInterfacePriorSchemaV0 = schema.Schema{
+	Attributes: map[string]schema.Attribute{
+		"adv_dhcp_config_advanced":           schema.BoolAttribute{Optional: true},
+		"adv_dhcp_config_file_override":      schema.BoolAttribute{Optional: true},
+		"adv_dhcp_config_file_override_file": schema.StringAttribute{Optional: true},
+		"adv_dhcp_option_modifiers":          schema.StringAttribute{Optional: true},
+		"adv_dhcp_pt_backoff_cutoff":         schema.Int64Attribute{Optional: true},
+		"adv_dhcp_pt_initial_interval":       schema.Int64Attribute{Optional: true},
+		"adv_dhcp_pt_reboot":                 schema.Int64Attribute{Optional: true},
+		"adv_dhcp_pt_retry":                  schema.Int64Attribute{Optional: true},
+		"adv_dhcp_pt_select_timeout":         schema.Int64Attribute{Optional: true},
+		"adv_dhcp_pt_timeout":                schema.Int64Attribute{Optional: true},
+		"adv_dhcp_request_options":           schema.StringAttribute{Optional: true},
+		"adv_dhcp_required_options":          schema.StringAttribute{Optional: true},
+		"adv_dhcp_send_options":              schema.StringAttribute{Optional: true},
+		"alias_address":                      schema.StringAttribute{Optional: true},
+		"alias_subnet":                       schema.Int64Attribute{Optional: true},
+		"block_bogons":                       schema.BoolAttribute{Optional: true},
+		"block_private":                      schema.BoolAttribute{Optional: true},
+		"description":                        schema.StringAttribute{Required: true},
+		"dhcp_cv_pt":                         schema.Int64Attribute{Optional: true},
+		"dhcp_hostname":                      schema.StringAttribute{Optional: true},
+		"dhcp_reject_from":                   schema.ListAttribute{ElementType: types.StringType, Optional: true},
+		"dhcp_vlan_enable":                   schema.BoolAttribute{Optional: true},
+		"enable":                             schema.BoolAttribute{Optional: true},
+		"gateway":                            schema.StringAttribute{Optional: true},
+		"gateway_6_rd":                       schema.StringAttribute{Optional: true},
+		"gateway_v6":                         schema.StringAttribute{Optional: true},
+		"if":                                 schema.StringAttribute{Required: true},
+		"ip_address":                         schema.StringAttribute{Optional: true},
+		"ip_address_v6":                      schema.StringAttribute{Optional: true},
+		"ip_v6_use_v4_iface":                 schema.BoolAttribute{Optional: true},
+		"media":                              schema.StringAttribute{Optional: true},
+		"mss":                                schema.StringAttribute{Optional: true},
+		"mtu":                                schema.Int64Attribute{Optional: true},
+		"prefix_6_rd_v4_plen":                schema.Int64Attribute{Optional: true},
+		"prefix_v6_rd":                       schema.StringAttribute{Optional: true},
+		"spoof_mac":                          schema.StringAttribute{Optional: true},
+		"subnet":                             schema.Int64Attribute{Optional: true},
+		"subnet_v6":                          schema.StringAttribute{Optional: true},
+		"track_v6_interface":                 schema.StringAttribute{Optional: true},
+		"track_v6_prefix_id_hex":             schema.StringAttribute{Optional: true},
+		"type":                               schema.StringAttribute{Optional: true},
+		"type_v6":                            schema.StringAttribute{Optional: true},
+	},
 }
 
 // UpgradeState implements resource.ResourceWithUpgradeState so that existing
 // pfsense_interface state (schema version 0) is migrated in-place to
 // pfsense_network_interface (schema version 1) with no recreation.
 func (r *networkInterfaceResource) UpgradeState(context.Context) map[int64]resource.StateUpgrader {
-	priorSchema := networkInterfacePriorSchema()
 	return map[int64]resource.StateUpgrader{
 		0: {
-			PriorSchema:   &priorSchema,
-			StateUpgrader: networkInterfaceUpgradeStateV0To1,
+			PriorSchema:   &networkInterfacePriorSchemaV0,
+			StateUpgrader: r.upgradeStateV0To1,
 		},
 	}
 }
 
-// networkInterfaceUpgradeStateV0To1 decodes the v0 state, maps every
-// user-configurable value to its new home, restores the resource id, and
-// writes the v1 state.
-func networkInterfaceUpgradeStateV0To1(ctx context.Context, req resource.UpgradeStateRequest, resp *resource.UpgradeStateResponse) {
+// upgradeStateV0To1 decodes the v0 state, maps every user-configurable value
+// to its new home, derives the resource id, and writes the v1 state.
+func (r *networkInterfaceResource) upgradeStateV0To1(ctx context.Context, req resource.UpgradeStateRequest, resp *resource.UpgradeStateResponse) {
 	var prior networkInterfaceModelV0
 	resp.Diagnostics.Append(req.State.Get(ctx, &prior)...)
 	if resp.Diagnostics.HasError() {
@@ -150,24 +144,20 @@ func networkInterfaceUpgradeStateV0To1(ctx context.Context, req resource.Upgrade
 		return
 	}
 
-	cur.ID = networkInterfacePriorID(req, prior)
+	// The v1 contract is id == if: Read, Update and Delete all look the
+	// interface up by the `if` key. The v0 id was the interface's descriptive
+	// name, so carrying it over would put state out of contract until the
+	// first Read self-heals it. `if` is Required in v0 and therefore always
+	// populated, so use it directly.
+	cur.ID = prior.If
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &cur)...)
 }
 
-// networkInterfacePriorID returns the v0 resource id read from the raw prior
-// state, falling back to the natural key (`if`) when it is absent. In the v1
-// provider the resource id is the interface key, so the first Read after the
-// upgrade normalizes an old descriptive-name id to the `if` value.
-func networkInterfacePriorID(req resource.UpgradeStateRequest, prior networkInterfaceModelV0) types.String {
-	if id := priorResourceID(req.RawState); id != "" {
-		return types.StringValue(id)
-	}
-	return prior.If
-}
-
 // toCurrent maps every v0 value to its v1 home (renames, retypes, dropped
-// fields, and v1-only fields left null).
+// fields, and v1-only fields left null). Optional strings go through
+// emptyToNull so the SDKv2 "" zero value does not land in v1 state as an empty
+// string where the framework means null.
 func (m networkInterfaceModelV0) toCurrent(ctx context.Context) (networkInterfaceModel, diag.Diagnostics) {
 	var diags diag.Diagnostics
 	var cur networkInterfaceModel
@@ -175,19 +165,19 @@ func (m networkInterfaceModelV0) toCurrent(ctx context.Context) (networkInterfac
 	cur.If = m.If
 	cur.Enable = m.Enable
 	cur.Descr = m.Description
-	cur.Spoofmac = m.SpoofMac
+	cur.Spoofmac = emptyToNull(m.SpoofMac)
 	cur.MTU = m.Mtu
-	cur.Mss = networkInterfaceStringToInt64(m.Mss, "mss", &diags)
-	cur.Media = m.Media
+	cur.Mss = upgradeStringToInt64(m.Mss, "mss", "pfsense_interface", &diags)
+	cur.Media = emptyToNull(m.Media)
 	// cur.Mediaopt: no v0 equivalent; left null.
 	cur.Blockpriv = m.BlockPrivate
 	cur.Blockbogons = m.BlockBogons
-	cur.Typev4 = m.Type
-	cur.Ipaddr = m.IpAddress
+	cur.Typev4 = emptyToNull(m.Type)
+	cur.Ipaddr = emptyToNull(m.IpAddress)
 	cur.Subnet = m.Subnet
-	cur.Gateway = m.Gateway
-	cur.Dhcphostname = m.DhcpHostname
-	cur.AliasAddress = m.AliasAddress
+	cur.Gateway = emptyToNull(m.Gateway)
+	cur.Dhcphostname = emptyToNull(m.DhcpHostname)
+	cur.AliasAddress = emptyToNull(m.AliasAddress)
 	cur.AliasSubnet = m.AliasSubnet
 	cur.Dhcprejectfrom = m.DhcpRejectFrom
 	cur.AdvDHCPConfigAdvanced = m.AdvDhcpConfigAdvanced
@@ -198,46 +188,23 @@ func (m networkInterfaceModelV0) toCurrent(ctx context.Context) (networkInterfac
 	cur.AdvDHCPPtReboot = m.AdvDhcpPtReboot
 	cur.AdvDHCPPtBackoffCutoff = m.AdvDhcpPtBackoffCutoff
 	cur.AdvDHCPPtInitialInterval = m.AdvDhcpPtInitialInterval
-	cur.AdvDHCPSendOptions = m.AdvDhcpSendOptions
-	cur.AdvDHCPRequestOptions = m.AdvDhcpRequestOptions
-	cur.AdvDHCPRequiredOptions = m.AdvDhcpRequiredOptions
-	cur.AdvDHCPOptionModifiers = m.AdvDhcpOptionModifiers
+	cur.AdvDHCPSendOptions = emptyToNull(m.AdvDhcpSendOptions)
+	cur.AdvDHCPRequestOptions = emptyToNull(m.AdvDhcpRequestOptions)
+	cur.AdvDHCPRequiredOptions = emptyToNull(m.AdvDhcpRequiredOptions)
+	cur.AdvDHCPOptionModifiers = emptyToNull(m.AdvDhcpOptionModifiers)
 	cur.AdvDHCPConfigFileOverride = m.AdvDhcpConfigFileOverride
-	cur.AdvDHCPConfigFileOverridePath = m.AdvDhcpConfigFileOverrideFile
-	cur.Typev6 = m.TypeV6
-	cur.Ipaddrv6 = m.IpAddressV6
-	cur.Subnetv6 = networkInterfaceStringToInt64(m.SubnetV6, "subnet_v6", &diags)
-	cur.Gatewayv6 = m.GatewayV6
+	cur.AdvDHCPConfigFileOverridePath = emptyToNull(m.AdvDhcpConfigFileOverrideFile)
+	cur.Typev6 = emptyToNull(m.TypeV6)
+	cur.Ipaddrv6 = emptyToNull(m.IpAddressV6)
+	cur.Subnetv6 = upgradeStringToInt64(m.SubnetV6, "subnet_v6", "pfsense_interface", &diags)
+	cur.Gatewayv6 = emptyToNull(m.GatewayV6)
 	cur.Ipv6usev4iface = m.IpV6UseV4Iface
 	// cur.Slaacusev4iface: no v0 equivalent; left null.
-	cur.Prefix6rd = m.PrefixV6Rd
-	cur.Gateway6rd = m.Gateway6Rd
+	cur.Prefix6rd = emptyToNull(m.PrefixV6Rd)
+	cur.Gateway6rd = emptyToNull(m.Gateway6Rd)
 	cur.Prefix6rdV4plen = m.Prefix6RdV4Plen
-	cur.Track6Interface = m.TrackV6Interface
-	cur.Track6PrefixIDHex = m.TrackV6PrefixIdHex
+	cur.Track6Interface = emptyToNull(m.TrackV6Interface)
+	cur.Track6PrefixIDHex = emptyToNull(m.TrackV6PrefixIdHex)
 
 	return cur, diags
-}
-
-// networkInterfaceStringToInt64 converts a v0 string attribute that held a
-// number into the v1 integer type. An empty string (the SDKv2 zero value for
-// an unset optional string) maps to null; a non-numeric value yields a
-// diagnostic rather than silently corrupting state.
-func networkInterfaceStringToInt64(v types.String, attr string, diags *diag.Diagnostics) types.Int64 {
-	if v.IsNull() || v.ValueString() == "" {
-		return types.Int64Null()
-	}
-	n, err := strconv.ParseInt(v.ValueString(), 10, 64)
-	if err != nil {
-		diags.AddAttributeError(
-			path.Root(attr),
-			"Invalid Value During State Upgrade",
-			"An error was encountered when upgrading pfsense_interface state "+
-				"from schema version 0 to version 1: the value of attribute "+
-				"\""+attr+"\" (\""+v.ValueString()+"\") could not be parsed as an integer. "+
-				"Set a valid integer value or remove the attribute from the resource configuration, then re-apply.",
-		)
-		return types.Int64Null()
-	}
-	return types.Int64Value(n)
 }

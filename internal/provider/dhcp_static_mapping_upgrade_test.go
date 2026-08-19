@@ -13,11 +13,11 @@ import (
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
 )
 
-// TestDHCPStaticMappingUpgradeV0toV1 exercises the full state-upgrade path for
+// TestDHCPStaticMappingUpgradeStateV0To1 exercises the full state-upgrade path for
 // pfsense_dhcp_static_mapping → pfsense_services_dhcp_static_mapping: prior
 // raw state (including the implicit "id") is decoded via the PriorSchema,
 // mapped to the version-1 model, and encoded against the CURRENT schema.
-func TestDHCPStaticMappingUpgradeV0toV1(t *testing.T) {
+func TestDHCPStaticMappingUpgradeStateV0To1(t *testing.T) {
 	ctx := context.Background()
 
 	rawJSON, err := json.Marshal(map[string]any{
@@ -69,7 +69,7 @@ func TestDHCPStaticMappingUpgradeV0toV1(t *testing.T) {
 	r.Schema(ctx, sreq, &sresp)
 	resp.State.Schema = sresp.Schema
 
-	r.upgradeStateV0toV1(ctx, req, &resp)
+	r.upgradeStateV0To1(ctx, req, &resp)
 	if resp.Diagnostics.HasError() {
 		t.Fatalf("upgrade returned diagnostics: %s", resp.Diagnostics)
 	}
@@ -125,9 +125,9 @@ func TestDHCPStaticMappingUpgradeV0toV1(t *testing.T) {
 	}
 }
 
-// TestDHCPStaticMappingUpgradeV0toV1MissingID covers the fallback: when the
+// TestDHCPStaticMappingUpgradeStateV0To1MissingID covers the fallback: when the
 // prior raw state has no implicit "id", the natural-key attributes are used.
-func TestDHCPStaticMappingUpgradeV0toV1MissingID(t *testing.T) {
+func TestDHCPStaticMappingUpgradeStateV0To1MissingID(t *testing.T) {
 	ctx := context.Background()
 
 	rawJSON, err := json.Marshal(map[string]any{
@@ -164,7 +164,7 @@ func TestDHCPStaticMappingUpgradeV0toV1MissingID(t *testing.T) {
 	r.Schema(ctx, sreq, &sresp)
 	resp.State.Schema = sresp.Schema
 
-	r.upgradeStateV0toV1(ctx, req, &resp)
+	r.upgradeStateV0To1(ctx, req, &resp)
 	if resp.Diagnostics.HasError() {
 		t.Fatalf("upgrade returned diagnostics: %s", resp.Diagnostics)
 	}
@@ -182,12 +182,12 @@ func TestDHCPStaticMappingUpgradeV0toV1MissingID(t *testing.T) {
 	}
 }
 
-// TestDHCPStaticMappingToCurrentV0toV1 unit-tests the pure mapping on a
+// TestDHCPStaticMappingModelV0ToCurrent unit-tests the pure mapping on a
 // representative version-0 model.
-func TestDHCPStaticMappingToCurrentV0toV1(t *testing.T) {
+func TestDHCPStaticMappingModelV0ToCurrent(t *testing.T) {
 	ctx := context.Background()
 
-	prior := dhcpStaticMappingV0{
+	prior := dhcpStaticMappingModelV0{
 		Interface:        types.StringValue("wan"),
 		MAC:              types.StringValue("00:11:22:33:44:55"),
 		ClientIdentifier: types.StringValue("01:aa:bb"),

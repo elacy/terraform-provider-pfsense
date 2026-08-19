@@ -279,13 +279,14 @@ func TestNetworkInterfaceUpgradeStateV0To1(t *testing.T) {
 	// Replicate what the framework does before invoking the upgrader:
 	// decode the prior raw state against the PriorSchema into req.State.
 	var priorState tfsdk.State
-	priorState.Schema = networkInterfacePriorSchema()
+	priorState.Schema = networkInterfacePriorSchemaV0
 	if diags := priorState.Set(ctx, &prior); diags.HasError() {
 		t.Fatalf("setting prior state: %s", diags)
 	}
 
 	// The old SDKv2 state always carries the implicit id attribute; for
-	// pfsense_interface that was the interface's descriptive name.
+	// pfsense_interface that was the interface's descriptive name, which the
+	// upgrader must NOT carry over — the v1 contract is id == if.
 	rawJSON, err := json.Marshal(map[string]any{"id": "WAN"})
 	if err != nil {
 		t.Fatalf("marshaling raw state: %s", err)
@@ -299,7 +300,7 @@ func TestNetworkInterfaceUpgradeStateV0To1(t *testing.T) {
 		State: tfsdk.State{Schema: schemaResp.Schema},
 	}
 
-	networkInterfaceUpgradeStateV0To1(ctx, req, &resp)
+	(&networkInterfaceResource{}).upgradeStateV0To1(ctx, req, &resp)
 	if resp.Diagnostics.HasError() {
 		t.Fatalf("upgrade diagnostics: %s", resp.Diagnostics)
 	}
@@ -309,9 +310,9 @@ func TestNetworkInterfaceUpgradeStateV0To1(t *testing.T) {
 		t.Fatalf("reading upgraded state: %s", diags)
 	}
 
-	// Prior id must be carried over verbatim.
-	if got.ID.ValueString() != "WAN" {
-		t.Errorf("ID = %q, want prior id %q", got.ID.ValueString(), "WAN")
+	// The v1 id is the interface key, never the old descriptive-name id.
+	if got.ID.ValueString() != "wan" {
+		t.Errorf("ID = %q, want the interface key %q", got.ID.ValueString(), "wan")
 	}
 	if got.If.ValueString() != "wan" {
 		t.Errorf("If = %q, want wan", got.If.ValueString())
@@ -336,7 +337,7 @@ func TestNetworkInterfaceUpgradeStateV0To1(t *testing.T) {
 	}
 }
 
-func TestNetworkInterfaceUpgradeStateV0To1FallbackID(t *testing.T) {
+func TestNetworkInterfaceUpgradeStateV0To1IDIsInterfaceKey(t *testing.T) {
 	ctx := context.Background()
 
 	prior := networkInterfaceModelV0{
@@ -346,7 +347,7 @@ func TestNetworkInterfaceUpgradeStateV0To1FallbackID(t *testing.T) {
 	}
 
 	var priorState tfsdk.State
-	priorState.Schema = networkInterfacePriorSchema()
+	priorState.Schema = networkInterfacePriorSchemaV0
 	if diags := priorState.Set(ctx, &prior); diags.HasError() {
 		t.Fatalf("setting prior state: %s", diags)
 	}
@@ -358,13 +359,13 @@ func TestNetworkInterfaceUpgradeStateV0To1FallbackID(t *testing.T) {
 		t.Fatalf("schema diagnostics: %s", schemaResp.Diagnostics)
 	}
 
-	// No RawState: the natural key (`if`) must become the new id.
+	// No RawState: the natural key (`if`) is the new id either way.
 	req := resource.UpgradeStateRequest{State: &priorState}
 	resp := resource.UpgradeStateResponse{
 		State: tfsdk.State{Schema: schemaResp.Schema},
 	}
 
-	networkInterfaceUpgradeStateV0To1(ctx, req, &resp)
+	(&networkInterfaceResource{}).upgradeStateV0To1(ctx, req, &resp)
 	if resp.Diagnostics.HasError() {
 		t.Fatalf("upgrade diagnostics: %s", resp.Diagnostics)
 	}
@@ -374,7 +375,7 @@ func TestNetworkInterfaceUpgradeStateV0To1FallbackID(t *testing.T) {
 		t.Fatalf("reading upgraded state: %s", diags)
 	}
 	if got.ID.ValueString() != "opt1" {
-		t.Errorf("ID = %q, want fallback to natural key %q", got.ID.ValueString(), "opt1")
+		t.Errorf("ID = %q, want the natural key %q", got.ID.ValueString(), "opt1")
 	}
 }
 

@@ -13,7 +13,7 @@ import (
 func TestRuleModelV0ToCurrent(t *testing.T) {
 	ctx := context.Background()
 
-	prior := ruleModelV0{
+	prior := firewallRuleModelV0{
 		AckQueue:        types.StringValue("q_ack"),
 		DefaultQueue:    types.StringValue("q_default"),
 		Description:     types.StringValue("Allow web"),
@@ -35,7 +35,7 @@ func TestRuleModelV0ToCurrent(t *testing.T) {
 		Source:          types.StringValue("any"),
 		SourcePort:      types.StringValue("any"),
 		StateType:       types.StringValue("keep state"),
-		TCPFlag: []ruleTCPFlagV0{
+		TCPFlag: []firewallRuleTCPFlagV0{
 			{Flag: types.StringValue("syn"), Present: types.BoolValue(true)},
 			{Flag: types.StringValue("ack"), Present: types.BoolValue(false)},
 		},
@@ -184,7 +184,7 @@ func TestRuleModelV0ToCurrentNoTCPFlags(t *testing.T) {
 	// A null (unset) prior tcp_flag list maps to any=true (the old provider
 	// set TCPFlagsAny when the covered-flags list was empty), with null
 	// out_of/set lists rather than bare zero-value types.List.
-	prior := ruleModelV0{
+	prior := firewallRuleModelV0{
 		Type:        types.StringValue("pass"),
 		Interface:   types.ListValueMust(types.StringType, []attr.Value{types.StringValue("wan")}),
 		Description: types.StringValue("no flags"),
@@ -205,7 +205,7 @@ func TestRuleModelV0ToCurrentNoTCPFlags(t *testing.T) {
 	}
 
 	// Empty-but-present list: any=true too, with explicit empty lists.
-	prior.TCPFlag = []ruleTCPFlagV0{}
+	prior.TCPFlag = []firewallRuleTCPFlagV0{}
 	cur, diags = prior.toCurrent(ctx)
 	if diags.HasError() {
 		t.Fatalf("unexpected diagnostics: %s", diags)
@@ -221,41 +221,121 @@ func TestRuleModelV0ToCurrentNoTCPFlags(t *testing.T) {
 	}
 }
 
-func TestRuleModelV0ToCurrentFloatingAndEmptyDescrWarnings(t *testing.T) {
+func TestRuleModelV0ToCurrentFloatingWarning(t *testing.T) {
 	ctx := context.Background()
 
-	// floating=true and empty description both produce warnings.
-	prior := ruleModelV0{
+	// floating=true produces a warning; the attribute itself is dropped.
+	prior := firewallRuleModelV0{
 		Type:        types.StringValue("pass"),
 		Interface:   types.ListValueMust(types.StringType, []attr.Value{types.StringValue("wan")}),
-		Description: types.StringValue(""),
+		Description: types.StringValue("allow web"),
 		Floating:    types.BoolValue(true),
+	}
+
+	_, diags := prior.toCurrent(ctx)
+	if diags.HasError() {
+		t.Fatalf("unexpected error diagnostics: %s", diags)
+	}
+	if len(diags) != 1 {
+		t.Fatalf("diags = %d entries, want 1 warning (floating)", len(diags))
+	}
+	if got := diags[0].Severity().String(); got != "Warning" {
+		t.Errorf("diag severity = %s, want Warning", got)
+	}
+
+	// floating=false/absent must be dropped silently.
+	prior.Floating = types.BoolValue(false)
+	_, diags = prior.toCurrent(ctx)
+	if diags.HasError() {
+		t.Fatalf("unexpected error diagnostics: %s", diags)
+	}
+	if len(diags) != 0 {
+		t.Fatalf("diags = %d entries, want none for a non-floating rule: %s", len(diags), diags)
+	}
+}
+
+// TestRuleModelV0ToCurrentIPProtocolWarning covers the v0-only "inet46" value:
+// the v1 ipprotocol validator only accepts inet/inet6, so the upgrade must
+// warn instead of letting the next plan fail with an opaque validation error.
+func TestRuleModelV0ToCurrentIPProtocolWarning(t *testing.T) {
+	ctx := context.Background()
+
+	prior := firewallRuleModelV0{
+		Type:        types.StringValue("pass"),
+		Interface:   types.ListValueMust(types.StringType, []attr.Value{types.StringValue("wan")}),
+		Description: types.StringValue("allow web"),
+		IPProtocol:  types.StringValue("inet46"),
 	}
 
 	cur, diags := prior.toCurrent(ctx)
 	if diags.HasError() {
 		t.Fatalf("unexpected error diagnostics: %s", diags)
 	}
-	if len(diags) != 2 {
-		t.Fatalf("diags = %d entries, want 2 warnings (floating + empty descr)", len(diags))
+	if len(diags) != 1 {
+		t.Fatalf("diags = %d entries, want 1 warning (ip_protocol): %s", len(diags), diags)
 	}
-	for _, d := range diags {
-		if d.Severity().String() != "Warning" {
-			t.Errorf("diag severity = %s, want Warning", d.Severity().String())
-		}
+	if got := diags[0].Severity().String(); got != "Warning" {
+		t.Errorf("diag severity = %s, want Warning", got)
 	}
-	if cur.ID.ValueString() != "" || cur.Descr.ValueString() != "" {
-		t.Errorf("ID/Descr = %q/%q, want empty for empty description", cur.ID.ValueString(), cur.Descr.ValueString())
+	// The value is still carried over so the practitioner can see what to fix.
+	if got := cur.IPProtocol.ValueString(); got != "inet46" {
+		t.Errorf("IPProtocol = %q, want inet46 carried over", got)
 	}
 
-	// floating=false/absent must be dropped silently.
-	prior.Floating = types.BoolValue(false)
-	cur, diags = prior.toCurrent(ctx)
-	if diags.HasError() {
-		t.Fatalf("unexpected error diagnostics: %s", diags)
+	for _, valid := range []string{"inet", "inet6"} {
+		prior.IPProtocol = types.StringValue(valid)
+		if _, diags := prior.toCurrent(ctx); len(diags) != 0 {
+			t.Errorf("ip_protocol = %q produced %d diagnostics, want none: %s", valid, len(diags), diags)
+		}
 	}
-	if len(diags) != 1 {
-		t.Fatalf("diags = %d entries, want only the empty-descr warning", len(diags))
+
+	// An unset (SDKv2 "") ip_protocol becomes null and must not warn.
+	prior.IPProtocol = types.StringValue("")
+	cur, diags = prior.toCurrent(ctx)
+	if len(diags) != 0 {
+		t.Errorf("empty ip_protocol produced %d diagnostics, want none: %s", len(diags), diags)
+	}
+	if !cur.IPProtocol.IsNull() {
+		t.Errorf("IPProtocol = %v, want null for the SDKv2 empty-string zero value", cur.IPProtocol)
+	}
+}
+
+// TestRuleUpgradeStateV0To1EmptyDescrAborts covers the blocking case: the v1
+// provider looks rules up by `descr`, so an empty description would match the
+// first unrelated descr-less rule and PATCH/DELETE it. The upgrade must fail
+// rather than warn, since a warning does not stop the apply.
+func TestRuleUpgradeStateV0To1EmptyDescrAborts(t *testing.T) {
+	ctx := context.Background()
+
+	var schemaResp resource.SchemaResponse
+	(&firewallRuleResource{}).Schema(ctx, resource.SchemaRequest{}, &schemaResp)
+	if schemaResp.Diagnostics.HasError() {
+		t.Fatalf("schema diagnostics: %s", schemaResp.Diagnostics)
+	}
+
+	prior := firewallRuleModelV0{
+		Type:        types.StringValue("pass"),
+		Interface:   types.ListValueMust(types.StringType, []attr.Value{types.StringValue("wan")}),
+		Description: types.StringValue(""),
+		ICMPType:    types.ListNull(types.StringType),
+	}
+
+	var priorState tfsdk.State
+	priorState.Schema = firewallRulePriorSchemaV0
+	if diags := priorState.Set(ctx, &prior); diags.HasError() {
+		t.Fatalf("setting prior state: %s", diags)
+	}
+
+	req := resource.UpgradeStateRequest{State: &priorState}
+	resp := resource.UpgradeStateResponse{State: tfsdk.State{Schema: schemaResp.Schema}}
+
+	(&firewallRuleResource{}).upgradeStateV0To1(ctx, req, &resp)
+	if !resp.Diagnostics.HasError() {
+		t.Fatalf("expected an error diagnostic for an empty description, got: %s", resp.Diagnostics)
+	}
+	// The upgrader must not write any state when it aborts.
+	if !resp.State.Raw.IsNull() {
+		t.Errorf("state was written despite the error: %v", resp.State.Raw)
 	}
 }
 
@@ -273,14 +353,14 @@ func TestRuleUpgradeStateV0To1(t *testing.T) {
 		t.Fatalf("schema Version = %d, want 1", schemaResp.Schema.Version)
 	}
 
-	prior := ruleModelV0{
+	prior := firewallRuleModelV0{
 		Type:        types.StringValue("pass"),
 		Interface:   types.ListValueMust(types.StringType, []attr.Value{types.StringValue("wan")}),
 		ICMPType:    types.ListNull(types.StringType),
 		Description: types.StringValue("Allow ssh"),
 		Protocol:    types.StringValue("tcp"),
 		Destination: types.StringValue("any"),
-		TCPFlag: []ruleTCPFlagV0{
+		TCPFlag: []firewallRuleTCPFlagV0{
 			{Flag: types.StringValue("syn"), Present: types.BoolValue(true)},
 			{Flag: types.StringValue("ack"), Present: types.BoolValue(false)},
 		},
@@ -289,7 +369,7 @@ func TestRuleUpgradeStateV0To1(t *testing.T) {
 	// Replicate what the framework does before invoking the upgrader:
 	// decode the prior raw state against the PriorSchema into req.State.
 	var priorState tfsdk.State
-	priorState.Schema = rulePriorSchema
+	priorState.Schema = firewallRulePriorSchemaV0
 	if diags := priorState.Set(ctx, &prior); diags.HasError() {
 		t.Fatalf("setting prior state: %s", diags)
 	}
@@ -299,7 +379,7 @@ func TestRuleUpgradeStateV0To1(t *testing.T) {
 		State: tfsdk.State{Schema: schemaResp.Schema},
 	}
 
-	ruleUpgradeStateV0To1(ctx, req, &resp)
+	(&firewallRuleResource{}).upgradeStateV0To1(ctx, req, &resp)
 	if resp.Diagnostics.HasError() {
 		t.Fatalf("upgrade diagnostics: %s", resp.Diagnostics)
 	}

@@ -14,36 +14,36 @@ import (
 // pfsense_firewall_alias (v0, SDKv2 provider v1) -> pfsense_firewall_alias (v1)
 // ---------------------------------------------------------------------------
 
-// aliasTargetV0 is the version-0 state shape of one element of the old
+// firewallAliasTargetV0 is the version-0 state shape of one element of the old
 // "target" list (SDKv2 TypeList of Resource with address/description), from
 // the provider v1 properties map of pfsense_firewall_alias.
-type aliasTargetV0 struct {
+type firewallAliasTargetV0 struct {
 	Address     types.String `tfsdk:"address"`
 	Description types.String `tfsdk:"description"`
 }
 
-// aliasModelV0 is the schema-version-0 (SDKv2-era) state model for
+// firewallAliasModelV0 is the schema-version-0 (SDKv2-era) state model for
 // pfsense_firewall_alias. The tfsdk tags use the OLD attribute names so that
 // req.State.Get decodes the prior state verbatim. The implicit SDKv2 `id`
 // attribute is intentionally absent: it is carried over from req.RawState
-// instead (see aliasUpgradeStateV0To1).
-type aliasModelV0 struct {
-	Name        types.String    `tfsdk:"name"`
-	Type        types.String    `tfsdk:"type"`
-	Description types.String    `tfsdk:"description"`
-	Target      []aliasTargetV0 `tfsdk:"target"`
+// instead (see upgradeStateV0To1).
+type firewallAliasModelV0 struct {
+	Name        types.String            `tfsdk:"name"`
+	Type        types.String            `tfsdk:"type"`
+	Description types.String            `tfsdk:"description"`
+	Target      []firewallAliasTargetV0 `tfsdk:"target"`
 }
 
 var _ resource.ResourceWithUpgradeState = (*firewallAliasResource)(nil)
 
-// aliasPriorSchema is the SDKv2 pfsense_firewall_alias schema (from the
+// firewallAliasPriorSchemaV0 is the SDKv2 pfsense_firewall_alias schema (from the
 // provider v1 properties map) translated to framework attributes. It mirrors
 // the v0 state exactly: same attribute names, same required/optional flags,
 // SDKv2 types mapped per TYPE TRANSLATION rules (the old `target` TypeList of
 // nested Resource becomes a ListAttribute whose ElementType is an object type
 // with the translated nested fields). The implicit SDKv2 `id` attribute is
 // deliberately excluded (it is carried over from RawState).
-var aliasPriorSchema = schema.Schema{
+var firewallAliasPriorSchemaV0 = schema.Schema{
 	Attributes: map[string]schema.Attribute{
 		"name":        schema.StringAttribute{Required: true},
 		"type":        schema.StringAttribute{Required: true},
@@ -64,17 +64,17 @@ var aliasPriorSchema = schema.Schema{
 func (r *firewallAliasResource) UpgradeState(context.Context) map[int64]resource.StateUpgrader {
 	return map[int64]resource.StateUpgrader{
 		0: {
-			PriorSchema:   &aliasPriorSchema,
-			StateUpgrader: aliasUpgradeStateV0To1,
+			PriorSchema:   &firewallAliasPriorSchemaV0,
+			StateUpgrader: r.upgradeStateV0To1,
 		},
 	}
 }
 
-// aliasUpgradeStateV0To1 decodes the v0 state, maps every user-configurable
-// value to its new home (description→descr, target flattened into
-// address+detail), restores the resource id, and writes the v1 state.
-func aliasUpgradeStateV0To1(ctx context.Context, req resource.UpgradeStateRequest, resp *resource.UpgradeStateResponse) {
-	var prior aliasModelV0
+// upgradeStateV0To1 decodes the v0 state, maps every user-configurable value
+// to its new home (description→descr, target flattened into address+detail),
+// restores the resource id, and writes the v1 state.
+func (r *firewallAliasResource) upgradeStateV0To1(ctx context.Context, req resource.UpgradeStateRequest, resp *resource.UpgradeStateResponse) {
+	var prior firewallAliasModelV0
 	resp.Diagnostics.Append(req.State.Get(ctx, &prior)...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -86,16 +86,16 @@ func aliasUpgradeStateV0To1(ctx context.Context, req resource.UpgradeStateReques
 		return
 	}
 
-	cur.ID = aliasPriorID(req, prior)
+	cur.ID = firewallAliasPriorID(req, prior)
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &cur)...)
 }
 
-// aliasPriorID returns the v0 resource id read from the raw prior state,
+// firewallAliasPriorID returns the v0 resource id read from the raw prior state,
 // falling back to the natural key (`name`) when it is absent. In the v1
 // provider the resource id is the alias name, matching the old id
 // (d.SetId(name)), so the id carries over unchanged.
-func aliasPriorID(req resource.UpgradeStateRequest, prior aliasModelV0) types.String {
+func firewallAliasPriorID(req resource.UpgradeStateRequest, prior firewallAliasModelV0) types.String {
 	if id := priorResourceID(req.RawState); id != "" {
 		return types.StringValue(id)
 	}
@@ -112,15 +112,20 @@ func aliasPriorID(req resource.UpgradeStateRequest, prior aliasModelV0) types.St
 //	              target[i].description -> detail[i],
 //	              absent/null description -> "")
 //
+// The optional `description` goes through emptyToNull so the SDKv2 "" zero
+// value does not land in v1 state as an empty string where the framework means
+// null; the flattened `detail` elements deliberately keep "" so they stay
+// index-aligned with `address`.
+//
 // The computed "id" is set by the StateUpgrader, not here. Both old lists are
 // built with explicit element types; a null prior list stays null.
-func (m aliasModelV0) toCurrent(ctx context.Context) (firewallAliasModel, diag.Diagnostics) {
+func (m firewallAliasModelV0) toCurrent(ctx context.Context) (firewallAliasModel, diag.Diagnostics) {
 	var diags diag.Diagnostics
 
 	cur := firewallAliasModel{
 		Name:  m.Name,
 		Type:  m.Type,
-		Descr: m.Description,
+		Descr: emptyToNull(m.Description),
 	}
 
 	if m.Target == nil {

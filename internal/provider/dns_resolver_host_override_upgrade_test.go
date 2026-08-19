@@ -13,11 +13,11 @@ import (
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
 )
 
-// TestDNSResolverHostOverrideUpgradeV0toV1 exercises the full state-upgrade
+// TestDNSResolverHostOverrideUpgradeStateV0To1 exercises the full state-upgrade
 // path for pfsense_unbound_host_override →
 // pfsense_services_dns_resolver_host_override, including the nested aliases
 // list.
-func TestDNSResolverHostOverrideUpgradeV0toV1(t *testing.T) {
+func TestDNSResolverHostOverrideUpgradeStateV0To1(t *testing.T) {
 	ctx := context.Background()
 
 	rawJSON, err := json.Marshal(map[string]any{
@@ -65,7 +65,7 @@ func TestDNSResolverHostOverrideUpgradeV0toV1(t *testing.T) {
 	r.Schema(ctx, sreq, &sresp)
 	resp.State.Schema = sresp.Schema
 
-	r.upgradeStateV0toV1(ctx, req, &resp)
+	r.upgradeStateV0To1(ctx, req, &resp)
 	if resp.Diagnostics.HasError() {
 		t.Fatalf("upgrade returned diagnostics: %s", resp.Diagnostics)
 	}
@@ -121,9 +121,9 @@ func TestDNSResolverHostOverrideUpgradeV0toV1(t *testing.T) {
 	}
 }
 
-// TestDNSResolverHostOverrideUpgradeV0toV1MissingID covers the fallback: when
+// TestDNSResolverHostOverrideUpgradeStateV0To1MissingID covers the fallback: when
 // the prior raw state has no implicit "id", the "dns" attribute is used.
-func TestDNSResolverHostOverrideUpgradeV0toV1MissingID(t *testing.T) {
+func TestDNSResolverHostOverrideUpgradeStateV0To1MissingID(t *testing.T) {
 	ctx := context.Background()
 
 	rawJSON, err := json.Marshal(map[string]any{
@@ -160,7 +160,7 @@ func TestDNSResolverHostOverrideUpgradeV0toV1MissingID(t *testing.T) {
 	r.Schema(ctx, sreq, &sresp)
 	resp.State.Schema = sresp.Schema
 
-	r.upgradeStateV0toV1(ctx, req, &resp)
+	r.upgradeStateV0To1(ctx, req, &resp)
 	if resp.Diagnostics.HasError() {
 		t.Fatalf("upgrade returned diagnostics: %s", resp.Diagnostics)
 	}
@@ -181,16 +181,16 @@ func TestDNSResolverHostOverrideUpgradeV0toV1MissingID(t *testing.T) {
 	}
 }
 
-// TestDNSResolverHostOverrideToCurrentV0toV1 unit-tests the pure mapping on a
+// TestDNSResolverHostOverrideModelV0ToCurrent unit-tests the pure mapping on a
 // representative version-0 model, including a null (unset) aliases list.
-func TestDNSResolverHostOverrideToCurrentV0toV1(t *testing.T) {
+func TestDNSResolverHostOverrideModelV0ToCurrent(t *testing.T) {
 	ctx := context.Background()
 
-	prior := dnsResolverHostOverrideV0{
+	prior := dnsResolverHostOverrideModelV0{
 		DNS:         types.StringValue("www.example.com"),
 		IPAddresses: types.ListValueMust(types.StringType, []attr.Value{types.StringValue("192.168.1.10")}),
 		Description: types.StringValue("web server"),
-		Aliases: []dnsHostOverrideAliasV0{
+		Aliases: []dnsResolverHostOverrideAliasV0{
 			{
 				HostName:    types.StringValue("mail"),
 				DomainName:  types.StringValue("example.com"),
@@ -239,7 +239,7 @@ func TestDNSResolverHostOverrideToCurrentV0toV1(t *testing.T) {
 	}
 
 	// A null (unset) prior aliases list must stay null.
-	priorNull := dnsResolverHostOverrideV0{
+	priorNull := dnsResolverHostOverrideModelV0{
 		DNS:         types.StringValue("www.example.com"),
 		IPAddresses: types.ListValueMust(types.StringType, []attr.Value{types.StringValue("192.168.1.10")}),
 	}

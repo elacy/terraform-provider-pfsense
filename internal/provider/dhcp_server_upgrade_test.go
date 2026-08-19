@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/attr"
@@ -93,7 +94,8 @@ func TestDhcpServerModelV0ToCurrent(t *testing.T) {
 func TestDhcpServerModelV0ToCurrentDenyUnknownFalseAndNull(t *testing.T) {
 	ctx := context.Background()
 
-	// deny_unknown=false -> "disabled"
+	// deny_unknown=false -> null. The v1 `denyunknown` attribute only accepts
+	// "enabled" or "class"; "off" is expressed by leaving it unset.
 	cur, diags := (dhcpServerModelV0{
 		Interface:    types.StringValue("lan"),
 		DenyUnknown:  types.BoolValue(false),
@@ -102,8 +104,8 @@ func TestDhcpServerModelV0ToCurrentDenyUnknownFalseAndNull(t *testing.T) {
 	if diags.HasError() {
 		t.Fatalf("unexpected diagnostics: %s", diags)
 	}
-	if cur.DenyUnknown.ValueString() != "disabled" {
-		t.Errorf("DenyUnknown = %q, want disabled (from deny_unknown=false)", cur.DenyUnknown.ValueString())
+	if !cur.DenyUnknown.IsNull() {
+		t.Errorf("DenyUnknown = %v, want null (from deny_unknown=false)", cur.DenyUnknown)
 	}
 	// max_lease_time="" -> null, not a parse error.
 	if !cur.MaxLease.IsNull() {
@@ -167,7 +169,7 @@ func TestDhcpServerUpgradeStateV0To1(t *testing.T) {
 	}
 
 	var priorState tfsdk.State
-	priorState.Schema = dhcpServerPriorSchema()
+	priorState.Schema = dhcpServerPriorSchemaV0
 	if diags := priorState.Set(ctx, &prior); diags.HasError() {
 		t.Fatalf("setting prior state: %s", diags)
 	}
@@ -187,7 +189,7 @@ func TestDhcpServerUpgradeStateV0To1(t *testing.T) {
 		State: tfsdk.State{Schema: schemaResp.Schema},
 	}
 
-	dhcpServerUpgradeStateV0To1(ctx, req, &resp)
+	(&dhcpServerResource{}).upgradeStateV0To1(ctx, req, &resp)
 	if resp.Diagnostics.HasError() {
 		t.Fatalf("upgrade diagnostics: %s", resp.Diagnostics)
 	}
@@ -229,7 +231,7 @@ func TestDhcpServerUpgradeStateV0To1FallbackID(t *testing.T) {
 	}
 
 	var priorState tfsdk.State
-	priorState.Schema = dhcpServerPriorSchema()
+	priorState.Schema = dhcpServerPriorSchemaV0
 	if diags := priorState.Set(ctx, &prior); diags.HasError() {
 		t.Fatalf("setting prior state: %s", diags)
 	}
@@ -247,7 +249,7 @@ func TestDhcpServerUpgradeStateV0To1FallbackID(t *testing.T) {
 		State: tfsdk.State{Schema: schemaResp.Schema},
 	}
 
-	dhcpServerUpgradeStateV0To1(ctx, req, &resp)
+	(&dhcpServerResource{}).upgradeStateV0To1(ctx, req, &resp)
 	if resp.Diagnostics.HasError() {
 		t.Fatalf("upgrade diagnostics: %s", resp.Diagnostics)
 	}
@@ -282,5 +284,62 @@ func TestDhcpServerUpgradeStateMap(t *testing.T) {
 	// The implicit SDKv2 id must NOT be part of the prior schema.
 	if upgrader.PriorSchema.Attributes["id"] != nil {
 		t.Fatalf("PriorSchema must not contain the implicit id attribute")
+	}
+}
+
+// TestDhcpServerModelV0ToCurrentDroppedAttributeWarnings covers the v0
+// attributes the v1 pfsense_services_dhcp_server resource does not model.
+// They are access-control / DHCP option data, so dropping them must be
+// surfaced rather than silent.
+func TestDhcpServerModelV0ToCurrentDroppedAttributeWarnings(t *testing.T) {
+	ctx := context.Background()
+
+	list := func(v string) types.List {
+		return types.ListValueMust(types.StringType, []attr.Value{types.StringValue(v)})
+	}
+
+	for _, tc := range []struct {
+		name  string
+		prior dhcpServerModelV0
+	}{
+		{"domain_search_list", dhcpServerModelV0{DomainSearchList: list("example.com")}},
+		{"mac_allow_list", dhcpServerModelV0{MacAllowList: list("00:11:22:33:44:55")}},
+		{"mac_deny_list", dhcpServerModelV0{MacDenyList: list("00:11:22:33:44:55")}},
+		{"ignore_bootp", dhcpServerModelV0{IgnoreBootp: types.BoolValue(true)}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			prior := tc.prior
+			prior.Interface = types.StringValue("lan")
+
+			_, diags := prior.toCurrent(ctx)
+			if diags.HasError() {
+				t.Fatalf("unexpected error diagnostics: %s", diags)
+			}
+			if len(diags) != 1 {
+				t.Fatalf("diags = %d entries, want 1 warning: %s", len(diags), diags)
+			}
+			if got := diags[0].Severity().String(); got != "Warning" {
+				t.Errorf("diag severity = %s, want Warning", got)
+			}
+			if !strings.Contains(diags[0].Detail(), tc.name) {
+				t.Errorf("warning detail %q does not name the dropped attribute %q", diags[0].Detail(), tc.name)
+			}
+			// The replacement resource must be named so the warning is actionable.
+			if !strings.Contains(diags[0].Detail(), "pfsense_services_dhcp_address_pool") {
+				t.Errorf("warning detail %q does not point at pfsense_services_dhcp_address_pool", diags[0].Detail())
+			}
+		})
+	}
+
+	// Empty lists and ignore_bootp=false (the SDKv2 zero values for unset
+	// optional attributes) must not warn.
+	_, diags := (dhcpServerModelV0{
+		Interface:        types.StringValue("lan"),
+		DomainSearchList: types.ListValueMust(types.StringType, []attr.Value{}),
+		MacAllowList:     types.ListNull(types.StringType),
+		IgnoreBootp:      types.BoolValue(false),
+	}).toCurrent(ctx)
+	if len(diags) != 0 {
+		t.Errorf("unset v0 attributes produced %d diagnostics, want none: %s", len(diags), diags)
 	}
 }

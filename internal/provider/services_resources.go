@@ -260,8 +260,8 @@ func (r *dnsResolverHostOverrideResource) Configure(ctx context.Context, req res
 }
 func (r *dnsResolverHostOverrideResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Description: "Manages a DNS resolver host override. Identified by `host` and `domain`.",
 		Version:     1,
+		Description: "Manages a DNS resolver host override. Identified by `host` and `domain`.",
 		Attributes: map[string]schema.Attribute{
 			"id":     computedIDAttribute(),
 			"host":   requiredStringAttribute("The hostname (e.g. `www` or `*`)."),

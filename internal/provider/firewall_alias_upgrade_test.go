@@ -14,11 +14,11 @@ import (
 func TestAliasModelV0ToCurrent(t *testing.T) {
 	ctx := context.Background()
 
-	prior := aliasModelV0{
+	prior := firewallAliasModelV0{
 		Name:        types.StringValue("test_alias"),
 		Type:        types.StringValue("host"),
 		Description: types.StringValue("web servers"),
-		Target: []aliasTargetV0{
+		Target: []firewallAliasTargetV0{
 			{Address: types.StringValue("10.0.0.1"), Description: types.StringValue("web1")},
 			// Missing/empty description must survive as an empty string at
 			// the same index (old provider skips setting empty descriptions).
@@ -82,7 +82,7 @@ func TestAliasModelV0ToCurrentNullTarget(t *testing.T) {
 
 	// A null (unset) prior target list must stay null, not become a
 	// bare zero-value types.List (which is not a valid state value).
-	prior := aliasModelV0{
+	prior := firewallAliasModelV0{
 		Name: types.StringValue("empty_alias"),
 		Type: types.StringValue("port"),
 	}
@@ -113,11 +113,11 @@ func TestAliasUpgradeStateV0To1(t *testing.T) {
 		t.Fatalf("schema Version = %d, want 1", schemaResp.Schema.Version)
 	}
 
-	prior := aliasModelV0{
+	prior := firewallAliasModelV0{
 		Name:        types.StringValue("test_alias"),
 		Type:        types.StringValue("host"),
 		Description: types.StringValue("web servers"),
-		Target: []aliasTargetV0{
+		Target: []firewallAliasTargetV0{
 			{Address: types.StringValue("10.0.0.1"), Description: types.StringValue("web1")},
 			{Address: types.StringValue("10.0.0.2"), Description: types.StringValue("web2")},
 		},
@@ -126,7 +126,7 @@ func TestAliasUpgradeStateV0To1(t *testing.T) {
 	// Replicate what the framework does before invoking the upgrader:
 	// decode the prior raw state against the PriorSchema into req.State.
 	var priorState tfsdk.State
-	priorState.Schema = aliasPriorSchema
+	priorState.Schema = firewallAliasPriorSchemaV0
 	if diags := priorState.Set(ctx, &prior); diags.HasError() {
 		t.Fatalf("setting prior state: %s", diags)
 	}
@@ -146,7 +146,7 @@ func TestAliasUpgradeStateV0To1(t *testing.T) {
 		State: tfsdk.State{Schema: schemaResp.Schema},
 	}
 
-	aliasUpgradeStateV0To1(ctx, req, &resp)
+	(&firewallAliasResource{}).upgradeStateV0To1(ctx, req, &resp)
 	if resp.Diagnostics.HasError() {
 		t.Fatalf("upgrade diagnostics: %s", resp.Diagnostics)
 	}
@@ -202,17 +202,17 @@ func TestAliasUpgradeStateV0To1(t *testing.T) {
 func TestAliasUpgradeStateV0To1FallbackID(t *testing.T) {
 	ctx := context.Background()
 
-	prior := aliasModelV0{
+	prior := firewallAliasModelV0{
 		Name:        types.StringValue("fallback_alias"),
 		Type:        types.StringValue("port"),
 		Description: types.StringValue("ports"),
-		Target: []aliasTargetV0{
+		Target: []firewallAliasTargetV0{
 			{Address: types.StringValue("443")},
 		},
 	}
 
 	var priorState tfsdk.State
-	priorState.Schema = aliasPriorSchema
+	priorState.Schema = firewallAliasPriorSchemaV0
 	if diags := priorState.Set(ctx, &prior); diags.HasError() {
 		t.Fatalf("setting prior state: %s", diags)
 	}
@@ -226,7 +226,7 @@ func TestAliasUpgradeStateV0To1FallbackID(t *testing.T) {
 		State: tfsdk.State{Schema: schemaResp.Schema},
 	}
 
-	aliasUpgradeStateV0To1(ctx, req, &resp)
+	(&firewallAliasResource{}).upgradeStateV0To1(ctx, req, &resp)
 	if resp.Diagnostics.HasError() {
 		t.Fatalf("upgrade diagnostics: %s", resp.Diagnostics)
 	}

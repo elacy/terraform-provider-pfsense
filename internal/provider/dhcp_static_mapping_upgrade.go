@@ -10,10 +10,17 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
-// dhcpStaticMappingV0 is the schema-version-0 state shape of the old SDKv2
-// resource pfsense_dhcp_static_mapping (git ref origin/v1). The tfsdk tags use
-// the OLD attribute names so req.State.Get can decode prior state directly.
-type dhcpStaticMappingV0 struct {
+// ---------------------------------------------------------------------------
+// pfsense_dhcp_static_mapping (v0, SDKv2 provider v1) ->
+// pfsense_services_dhcp_static_mapping (v1)
+// ---------------------------------------------------------------------------
+
+// dhcpStaticMappingModelV0 is the schema-version-0 state shape of the old
+// SDKv2 resource pfsense_dhcp_static_mapping (git ref origin/v1). The tfsdk
+// tags use the OLD attribute names so req.State.Get can decode prior state
+// directly. The implicit SDKv2 `id` attribute is intentionally absent: it is
+// read from req.RawState instead (see upgradeStateV0To1).
+type dhcpStaticMappingModelV0 struct {
 	Interface           types.String `tfsdk:"interface"`
 	MAC                 types.String `tfsdk:"mac"`
 	ClientIdentifier    types.String `tfsdk:"client_identifier"`
@@ -26,6 +33,8 @@ type dhcpStaticMappingV0 struct {
 	DNSServers          types.List   `tfsdk:"dns_servers"`
 	ARPTableStaticEntry types.Bool   `tfsdk:"arp_table_static_entry"`
 }
+
+var _ resource.ResourceWithUpgradeState = (*dhcpStaticMappingResource)(nil)
 
 // dhcpStaticMappingPriorSchemaV0 is the PriorSchema for the version 0 → 1
 // state upgrade. It contains exactly the old SDKv2 properties translated to
@@ -46,62 +55,22 @@ var dhcpStaticMappingPriorSchemaV0 = schema.Schema{
 	},
 }
 
-// toCurrent maps version-0 state into the version-1 model
-// (dhcpStaticMappingModel). Attribute renames:
-//
-//	interface          → parent_id
-//	mac                → mac
-//	client_identifier  → cid
-//	ip_address         → ipaddr
-//	host_name          → hostname
-//	description        → descr
-//	gateway            → gateway
-//	domain             → domain
-//	domain_search_list → domainsearchlist
-//	dns_servers        → dnsserver
-//	arp_table_static_entry → arp_table_static_entry
-//
-// defaultleasetime, maxleasetime, winsserver and ntpserver are new in version
-// 1 and have no version-0 source, so they are left null. The computed "id"
-// (interface|mac) is set by the StateUpgrader, not here.
-func (v *dhcpStaticMappingV0) toCurrent(ctx context.Context) (dhcpStaticMappingModel, diag.Diagnostics) {
-	var diags diag.Diagnostics
-
-	return dhcpStaticMappingModel{
-		ParentID:            v.Interface,
-		MAC:                 v.MAC,
-		Ipaddr:              v.IPAddress,
-		CID:                 v.ClientIdentifier,
-		Hostname:            v.HostName,
-		Domain:              v.Domain,
-		Domainsearchlist:    v.DomainSearchList,
-		Gateway:             v.Gateway,
-		DNSServer:           v.DNSServers,
-		WINSServer:          types.ListNull(types.StringType),
-		NTPServer:           types.ListNull(types.StringType),
-		ARPTableStaticEntry: v.ARPTableStaticEntry,
-		Descr:               v.Description,
-	}, diags
-}
-
 // UpgradeState returns the version 0 → 1 state upgrader for the renamed
 // resource pfsense_dhcp_static_mapping → pfsense_services_dhcp_static_mapping.
-func (r *dhcpStaticMappingResource) UpgradeState(_ context.Context) map[int64]resource.StateUpgrader {
+func (r *dhcpStaticMappingResource) UpgradeState(context.Context) map[int64]resource.StateUpgrader {
 	return map[int64]resource.StateUpgrader{
 		0: {
 			PriorSchema:   &dhcpStaticMappingPriorSchemaV0,
-			StateUpgrader: r.upgradeStateV0toV1,
+			StateUpgrader: r.upgradeStateV0To1,
 		},
 	}
 }
 
-var _ resource.ResourceWithUpgradeState = (*dhcpStaticMappingResource)(nil)
-
-// upgradeStateV0toV1 migrates v1-provider state in place. The prior resource id
+// upgradeStateV0To1 migrates v1-provider state in place. The prior resource id
 // is "<interface>.<mac>" (partition "<interface>", natural key "<mac>"); the
 // version-1 id is "<interface>|<mac>".
-func (r *dhcpStaticMappingResource) upgradeStateV0toV1(ctx context.Context, req resource.UpgradeStateRequest, resp *resource.UpgradeStateResponse) {
-	var prior dhcpStaticMappingV0
+func (r *dhcpStaticMappingResource) upgradeStateV0To1(ctx context.Context, req resource.UpgradeStateRequest, resp *resource.UpgradeStateResponse) {
+	var prior dhcpStaticMappingModelV0
 	resp.Diagnostics.Append(req.State.Get(ctx, &prior)...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -129,6 +98,46 @@ func (r *dhcpStaticMappingResource) upgradeStateV0toV1(ctx context.Context, req 
 	current.ID = types.StringValue(r.key(iface, mac))
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &current)...)
+}
+
+// toCurrent maps version-0 state into the version-1 model
+// (dhcpStaticMappingModel). Attribute renames:
+//
+//	interface          → parent_id
+//	mac                → mac
+//	client_identifier  → cid
+//	ip_address         → ipaddr
+//	host_name          → hostname
+//	description        → descr
+//	gateway            → gateway
+//	domain             → domain
+//	domain_search_list → domainsearchlist
+//	dns_servers        → dnsserver
+//	arp_table_static_entry → arp_table_static_entry
+//
+// defaultleasetime, maxleasetime, winsserver and ntpserver are new in version
+// 1 and have no version-0 source, so they are left null. Optional strings go
+// through emptyToNull so the SDKv2 "" zero value does not land in version-1
+// state as an empty string where the framework means null. The computed "id"
+// (interface|mac) is set by the StateUpgrader, not here.
+func (m dhcpStaticMappingModelV0) toCurrent(ctx context.Context) (dhcpStaticMappingModel, diag.Diagnostics) {
+	var diags diag.Diagnostics
+
+	return dhcpStaticMappingModel{
+		ParentID:            m.Interface,
+		MAC:                 m.MAC,
+		Ipaddr:              emptyToNull(m.IPAddress),
+		CID:                 emptyToNull(m.ClientIdentifier),
+		Hostname:            emptyToNull(m.HostName),
+		Domain:              emptyToNull(m.Domain),
+		Domainsearchlist:    m.DomainSearchList,
+		Gateway:             emptyToNull(m.Gateway),
+		DNSServer:           m.DNSServers,
+		WINSServer:          types.ListNull(types.StringType),
+		NTPServer:           types.ListNull(types.StringType),
+		ARPTableStaticEntry: m.ARPTableStaticEntry,
+		Descr:               emptyToNull(m.Description),
+	}, diags
 }
 
 // splitPriorStaticMappingID splits the v0 resource id ("<interface>.<mac>")
