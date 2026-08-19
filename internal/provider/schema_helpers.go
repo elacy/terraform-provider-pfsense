@@ -3,6 +3,7 @@ package provider
 import (
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
@@ -110,6 +111,38 @@ func computedIntAttribute(desc string) schema.Int64Attribute {
 
 func computedBoolAttribute(desc string) schema.BoolAttribute {
 	return schema.BoolAttribute{Computed: true, Description: desc}
+}
+
+// constantComputedStringAttribute is a computed attribute whose value is a
+// system-assigned constant: the API assigns it once (e.g. an IKE ID) and the
+// resource's Update method does not repopulate it. On update the framework
+// plans an unconfigured Computed attribute as unknown ("known after apply");
+// UseStateForUnknown copies the prior state value — known or null — into the
+// plan instead, so a value Update never re-derives is not persisted as
+// unknown. Do NOT use for values derived from updatable config (e.g. a public
+// key derived from a private key): those must recompute when their inputs
+// change.
+func constantComputedStringAttribute(desc string) schema.StringAttribute {
+	return schema.StringAttribute{
+		Computed:    true,
+		Description: desc,
+		PlanModifiers: []planmodifier.String{
+			stringplanmodifier.UseStateForUnknown(),
+		},
+	}
+}
+
+// constantComputedIntAttribute is the Int64 counterpart of
+// constantComputedStringAttribute; the same caveats apply (do not use for
+// values derived from updatable config).
+func constantComputedIntAttribute(desc string) schema.Int64Attribute {
+	return schema.Int64Attribute{
+		Computed:    true,
+		Description: desc,
+		PlanModifiers: []planmodifier.Int64{
+			int64planmodifier.UseStateForUnknown(),
+		},
+	}
 }
 
 func requiredIntAttribute(desc string, validators ...validator.Int64) schema.Int64Attribute {
