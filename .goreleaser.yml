@@ -1,4 +1,5 @@
 version: 2
+project_name: terraform-provider-pfsense
 before:
   hooks:
     - go mod tidy
@@ -18,11 +19,6 @@ builds:
     goarch:
       - amd64
       - arm64
-    ignore:
-      - goos: darwin
-        goarch: arm
-      - goos: windows
-        goarch: arm
     binary: '{{ .ProjectName }}_v{{ .Version }}'
 archives:
   - formats:
