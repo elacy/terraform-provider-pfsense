@@ -261,11 +261,10 @@ func (m firewallRuleModelV0) toCurrent(ctx context.Context) (firewallRuleModel, 
 
 	cur.TCPFlagsOutOf = types.ListValueMust(types.StringType, outOf)
 	cur.TCPFlagsSet = types.ListValueMust(types.StringType, set)
-	if len(outOf) == 0 {
-		cur.TCPFlagsAny = types.BoolNull()
-	} else {
-		cur.TCPFlagsAny = types.BoolValue(false)
-	}
+	// "any" is only meaningful when no specific flag is present. toCurrent
+	// returns early above when len(m.TCPFlag) == 0, so len(outOf) > 0 here
+	// and "any" is always false at this point.
+	cur.TCPFlagsAny = types.BoolValue(false)
 
 	return cur, diags
 }

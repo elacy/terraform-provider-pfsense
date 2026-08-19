@@ -99,6 +99,31 @@ func TestAliasModelV0ToCurrentNullTarget(t *testing.T) {
 	}
 }
 
+func TestAliasModelV0ToCurrentAllEmptyDetails(t *testing.T) {
+	ctx := context.Background()
+
+	// Targets whose descriptions are all empty/null migrate to a null detail
+	// list (not [""]), so an omitted `detail` config does not plan a spurious
+	// [""] -> null diff. Index alignment with address only carries meaning
+	// once at least one description is non-empty.
+	prior := firewallAliasModelV0{
+		Name: types.StringValue("no_desc"),
+		Type: types.StringValue("host"),
+		Target: []firewallAliasTargetV0{
+			{Address: types.StringValue("10.0.0.1"), Description: types.StringNull()},
+			{Address: types.StringValue("10.0.0.2"), Description: types.StringValue("")},
+		},
+	}
+
+	cur, diags := prior.toCurrent(ctx)
+	if diags.HasError() {
+		t.Fatalf("unexpected diagnostics: %s", diags)
+	}
+	if !cur.Detail.IsNull() {
+		t.Errorf("Detail = %v, want null (all descriptions empty)", cur.Detail)
+	}
+}
+
 func TestAliasUpgradeStateV0To1(t *testing.T) {
 	ctx := context.Background()
 

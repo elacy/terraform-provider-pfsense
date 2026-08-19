@@ -138,15 +138,28 @@ func (m firewallAliasModelV0) toCurrent(ctx context.Context) (firewallAliasModel
 
 	addresses := make([]attr.Value, 0, len(m.Target))
 	details := make([]attr.Value, 0, len(m.Target))
+	allEmpty := true
 	for _, target := range m.Target {
 		addresses = append(addresses, types.StringValue(target.Address.ValueString()))
 		// Missing/null description decodes to "" (ValueString of a null
 		// types.String), preserving the 1:1 index alignment with address.
 		details = append(details, types.StringValue(target.Description.ValueString()))
+		if target.Description.ValueString() != "" {
+			allEmpty = false
+		}
 	}
 
 	cur.Address = types.ListValueMust(types.StringType, addresses)
-	cur.Detail = types.ListValueMust(types.StringType, details)
+	// Index alignment with address only carries meaning when at least one
+	// description is non-empty; when every description is empty the list is
+	// normalised to null so an omitted `detail` config does not plan a
+	// spurious [""] -> null diff (the same zero-value normalisation applied
+	// everywhere else in this upgrader).
+	if allEmpty {
+		cur.Detail = types.ListNull(types.StringType)
+	} else {
+		cur.Detail = types.ListValueMust(types.StringType, details)
+	}
 
 	return cur, diags
 }
