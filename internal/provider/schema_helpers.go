@@ -3,6 +3,7 @@ package provider
 import (
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
@@ -110,6 +111,32 @@ func computedIntAttribute(desc string) schema.Int64Attribute {
 
 func computedBoolAttribute(desc string) schema.BoolAttribute {
 	return schema.BoolAttribute{Computed: true, Description: desc}
+}
+
+// constantComputedStringAttribute is a computed attribute whose value is a
+// system-assigned constant (the API assigns it once and never changes it).
+// UseStateForUnknown keeps the prior value across plans so an in-place Update
+// that does not repopulate these IDs never surfaces a spurious unknown->known
+// diff. Do NOT use for values derived from updatable config (e.g. a public key
+// derived from a private key): those must recompute when their inputs change.
+func constantComputedStringAttribute(desc string) schema.StringAttribute {
+	return schema.StringAttribute{
+		Computed:    true,
+		Description: desc,
+		PlanModifiers: []planmodifier.String{
+			stringplanmodifier.UseStateForUnknown(),
+		},
+	}
+}
+
+func constantComputedIntAttribute(desc string) schema.Int64Attribute {
+	return schema.Int64Attribute{
+		Computed:    true,
+		Description: desc,
+		PlanModifiers: []planmodifier.Int64{
+			int64planmodifier.UseStateForUnknown(),
+		},
+	}
 }
 
 func requiredIntAttribute(desc string, validators ...validator.Int64) schema.Int64Attribute {

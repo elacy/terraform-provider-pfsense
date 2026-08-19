@@ -108,7 +108,7 @@ func (r *firewallNATPortForwardResource) Schema(_ context.Context, _ resource.Sc
 			"descr":              optionalStringAttribute("A description for this port forward rule."),
 			"natreflection":      enumAttribute("NAT reflection mode for this rule: enable, disable or purenat.", "enable", "disable", "purenat"),
 			"associated_rule_id": optionalStringAttribute("Associated firewall rule mode or id (empty string, `new`, `pass`, or an existing rule id)."),
-			"created_time":       schema.Int64Attribute{Computed: true, Description: "Unix timestamp of when this rule was originally created."},
+			"created_time":       constantComputedIntAttribute("Unix timestamp of when this rule was originally created."),
 			"created_by":         schema.StringAttribute{Computed: true, Description: "Username and IP of the user who originally created this rule."},
 			"updated_time":       schema.Int64Attribute{Computed: true, Description: "Unix timestamp of when this rule was last updated."},
 			"updated_by":         schema.StringAttribute{Computed: true, Description: "Username and IP of the user who last updated this rule."},

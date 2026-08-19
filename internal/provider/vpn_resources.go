@@ -82,7 +82,7 @@ func (r *ipsecPhase1Resource) Schema(_ context.Context, _ resource.SchemaRequest
 		Description: "Manages an IPsec phase 1 (IKE) entry. Identified by its `descr` description. The phase 1 encryption proposals are managed by `pfsense_ipsec_phase1_encryption`.",
 		Attributes: map[string]schema.Attribute{
 			"id":                    computedIDAttribute(),
-			"ikeid":                 computedIntAttribute("The unique IKE ID for this phase 1 entry, assigned by the system."),
+			"ikeid":                 constantComputedIntAttribute("The unique IKE ID for this phase 1 entry, assigned by the system."),
 			"descr":                 keyAttribute("A description for this phase 1 entry. Unique; immutable after creation."),
 			"disabled":              optionalBoolAttribute("Disable this phase 1 entry."),
 			"iketype":               requiredEnumAttribute("The IKE protocol version this phase 1 entry will use.", "ikev1", "ikev2", "auto"),
@@ -597,8 +597,8 @@ func (r *ipsecPhase2Resource) Schema(_ context.Context, _ resource.SchemaRequest
 		Description: "Manages an IPsec phase 2 (child SA) entry. Identified by its `descr` description. The phase 2 encryption proposals are managed by `pfsense_ipsec_phase2_encryption`.",
 		Attributes: map[string]schema.Attribute{
 			"id":                    computedIDAttribute(),
-			"uniqid":                computedStringAttribute("The unique ID used to identify this phase 2 entry internally, assigned by the system."),
-			"reqid":                 computedIntAttribute("The unique request ID used to identify this phase 2 entry internally, assigned by the system."),
+			"uniqid":                constantComputedStringAttribute("The unique ID used to identify this phase 2 entry internally, assigned by the system."),
+			"reqid":                 constantComputedIntAttribute("The unique request ID used to identify this phase 2 entry internally, assigned by the system."),
 			"ikeid":                 requiredIntAttribute("The `ikeid` of the parent IPsec phase 1 entry this phase 2 entry belongs to."),
 			"descr":                 keyAttribute("A description for this phase 2 entry. Unique; immutable after creation."),
 			"disabled":              optionalBoolAttribute("Disable this phase 2 entry."),
@@ -1063,8 +1063,8 @@ func (r *openVPNClientResource) Schema(_ context.Context, _ resource.SchemaReque
 		Description: "Manages an OpenVPN client instance. Identified by its `description`.",
 		Attributes: map[string]schema.Attribute{
 			"id":                    computedIDAttribute(),
-			"vpnid":                 computedIntAttribute("The unique ID for this OpenVPN client, assigned by the system."),
-			"vpnif":                 computedStringAttribute("The VPN interface name for this OpenVPN client, assigned by the system."),
+			"vpnid":                 constantComputedIntAttribute("The unique ID for this OpenVPN client, assigned by the system."),
+			"vpnif":                 constantComputedStringAttribute("The VPN interface name for this OpenVPN client, assigned by the system."),
 			"description":           keyAttribute("The description for this OpenVPN client. Unique; immutable after creation."),
 			"disable":               optionalBoolAttribute("Disable this OpenVPN client."),
 			"mode":                  enumAttribute("The OpenVPN client mode. Defaults to p2p_tls when unset.", "p2p_tls"),
@@ -1433,8 +1433,8 @@ func (r *openVPNServerResource) Schema(_ context.Context, _ resource.SchemaReque
 		Description: "Manages an OpenVPN server instance. Identified by its `description`.",
 		Attributes: map[string]schema.Attribute{
 			"id":                        computedIDAttribute(),
-			"vpnid":                     computedIntAttribute("The unique ID for this OpenVPN server, assigned by the system."),
-			"vpnif":                     computedStringAttribute("The VPN interface name for this OpenVPN server, assigned by the system."),
+			"vpnid":                     constantComputedIntAttribute("The unique ID for this OpenVPN server, assigned by the system."),
+			"vpnif":                     constantComputedStringAttribute("The VPN interface name for this OpenVPN server, assigned by the system."),
 			"description":               keyAttribute("The description for this OpenVPN server. Unique; immutable after creation."),
 			"disable":                   optionalBoolAttribute("Disable this OpenVPN server."),
 			"mode":                      requiredEnumAttribute("The OpenVPN server mode.", "p2p_tls", "server_tls", "server_user", "server_tls_user"),
