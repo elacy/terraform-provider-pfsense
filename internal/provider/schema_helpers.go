@@ -32,6 +32,10 @@ func requiredNameAttribute() schema.StringAttribute {
 	}
 }
 
+// requiredStringAttribute returns a Required string attribute. Unlike
+// optionalStringAttribute, the validators are NOT wrapped in allowEmpty: a
+// Required field rejects "" unless the call site passes allowEmpty(...) itself
+// (e.g. static-map ipaddr, where "" is the legitimate "no reserved address").
 func requiredStringAttribute(desc string, validators ...validator.String) schema.StringAttribute {
 	return schema.StringAttribute{Required: true, Description: desc, Validators: validators}
 }
@@ -119,7 +123,10 @@ func sensitiveStringAttribute(desc string) schema.StringAttribute {
 }
 
 // requiredSensitiveStringAttribute is a required attribute holding a
-// credential; its value is redacted from plan output and logs.
+// credential; its value is redacted from plan output and logs. It is
+// requiredStringAttribute with Sensitive set, so the same allowEmpty caveat
+// applies: validators are not wrapped, and "" is rejected unless the call site
+// passes allowEmpty(...) explicitly.
 func requiredSensitiveStringAttribute(desc string, validators ...validator.String) schema.StringAttribute {
 	return schema.StringAttribute{Required: true, Sensitive: true, Description: desc, Validators: validators}
 }
@@ -140,6 +147,10 @@ func optionalIntListAttribute(desc string) schema.ListAttribute {
 	return schema.ListAttribute{ElementType: types.Int64Type, Optional: true, Description: desc}
 }
 
+// requiredStringListAttribute is the Required list counterpart of
+// optionalStringListAttribute. Element validators passed here (typically
+// listvalidator.ValueStringsAre) are NOT wrapped in allowEmpty, so an empty
+// element is rejected unless the call site allows it explicitly.
 func requiredStringListAttribute(desc string, validators ...validator.List) schema.ListAttribute {
 	return schema.ListAttribute{
 		ElementType: types.StringType,

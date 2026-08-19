@@ -174,3 +174,49 @@ func TestAllowEmpty(t *testing.T) {
 		t.Errorf("allowEmpty(isIPAddress) accepted an invalid IP")
 	}
 }
+
+func acceptsInt(v validator.Int64, n int64) bool {
+	resp := &validator.Int64Response{}
+	v.ValidateInt64(context.Background(), validator.Int64Request{
+		Path:        path.Root("test"),
+		ConfigValue: types.Int64Value(n),
+	}, resp)
+	return !resp.Diagnostics.HasError()
+}
+
+// TestSubnetBits locks in the prefix-length bounds each isSubnetBits call
+// site depends on: 32 for IPv4 subnet bits, 128 for IPv6/VIP/IPsec netbits.
+func TestSubnetBits(t *testing.T) {
+	tests := []struct {
+		name string
+		max  int64
+		val  int64
+		want bool
+	}{
+		{"ipv4 lower bound", 32, 0, true},
+		{"ipv4 max", 32, 32, true},
+		{"ipv4 over max", 32, 33, false},
+		{"ipv4 negative", 32, -1, false},
+		{"ipv6 lower bound", 128, 0, true},
+		{"ipv6 max", 128, 128, true},
+		{"ipv6 over max", 128, 129, false},
+		{"ipv6 negative", 128, -1, false},
+	}
+	for _, tc := range tests {
+		if got := acceptsInt(isSubnetBits(tc.max), tc.val); got != tc.want {
+			t.Errorf("%s: isSubnetBits(%d)(%d) = %v, want %v", tc.name, tc.max, tc.val, got, tc.want)
+		}
+	}
+
+	// Null and unknown values are not validated (the framework skips them).
+	for _, v := range []types.Int64{types.Int64Null(), types.Int64Unknown()} {
+		resp := &validator.Int64Response{}
+		isSubnetBits(32).ValidateInt64(context.Background(), validator.Int64Request{
+			Path:        path.Root("test"),
+			ConfigValue: v,
+		}, resp)
+		if resp.Diagnostics.HasError() {
+			t.Errorf("isSubnetBits rejected a null/unknown value: %v", resp.Diagnostics)
+		}
+	}
+}

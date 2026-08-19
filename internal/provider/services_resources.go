@@ -83,7 +83,9 @@ func (r *dhcpServerResource) Schema(_ context.Context, _ resource.SchemaRequest,
 				Description: "Static DHCP mappings.",
 				NestedObject: schema.NestedAttributeObject{
 					Attributes: map[string]schema.Attribute{
-						"mac":      requiredStringAttribute("Client MAC address.", isMAC()),
+						"mac": requiredStringAttribute("Client MAC address.", isMAC()),
+						// A MAC-only static mapping (no reserved address) is legitimate
+						// in pfSense, so "" is the unset value and must be tolerated.
 						"ipaddr":   requiredStringAttribute("Reserved IP address.", allowEmpty(isIPAddress())),
 						"cid":      optionalStringAttribute("Client identifier."),
 						"hostname": optionalStringAttribute("Client hostname.", isHostname()),
