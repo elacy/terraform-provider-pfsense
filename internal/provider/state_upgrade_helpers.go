@@ -141,9 +141,11 @@ func zeroToNull(v types.Int64) types.Int64 {
 // Optional, so null carries no meaning of its own and the first Read after the
 // upgrade repopulates the state value from the pfSense API. (State, not plan:
 // an Optional-not-Computed attribute a config omits may still show a
-// persistent diff on later refreshes.) Do not use it where an empty
-// list is a meaningful configured value (see the TCP-flag note in
-// firewall_rule_upgrade.go).
+// persistent diff on later refreshes.) Do not use it where an empty list is a
+// meaningful configured value — see the TCP-flag note in
+// firewall_rule_upgrade.go for a case where that trade-off is taken
+// deliberately (an empty set is meaningful there, and is normalised to null
+// anyway).
 func emptyListToNull(ctx context.Context, v types.List) types.List {
 	if v.IsNull() || v.IsUnknown() {
 		return v
@@ -168,10 +170,10 @@ func upgradeStringToInt64(v types.String, attrName, resourceType string, diags *
 	n, err := strconv.ParseInt(v.ValueString(), 10, 64)
 	if err != nil {
 		// The v0 attribute name is referenced in the message text rather than
-		// anchored via path.Root: several call sites pass a v0 name that has no
-		// v1 counterpart (e.g. "max_lease_time" -> "maxleasetime", "subnet_v6"
-		// -> "subnetv6"), and anchoring it would surface an error pointing at
-		// a non-existent attribute.
+		// anchored via path.Root: the two call sites pass v0 names whose v1
+		// counterparts differ ("mss" is shared with v1, but "subnet_v6" ->
+		// "subnetv6"), and anchoring would surface an error pointing at a
+		// non-existent attribute.
 		diags.AddError(
 			"Invalid Value During State Upgrade",
 			"An error was encountered when upgrading "+resourceType+" state "+

@@ -118,10 +118,15 @@ func (r *dhcpServerResource) upgradeStateV0To1(ctx context.Context, req resource
 // the pfSense API accepts not just a number of seconds but the literal
 // "infinite" (no lease-expiry cap). The v1 `maxleasetime` is an Int64 with no
 // representation for "infinite", so a non-numeric value maps to null with a
-// WARNING naming the value rather than an ERROR — an error would abort
-// UpgradeResourceState and brick the resource permanently, whereas null simply
-// means "leave it to the server default" and the first Read repopulates the
-// real value. A numeric string parses normally.
+// WARNING naming the value rather than an ERROR. The distinction from
+// upgradeStringToInt64 (which errors on a non-numeric mss/subnet_v6) is the
+// value's legitimacy, not the mechanism: "infinite" is a valid pfSense value
+// that simply has no integer representation, so erroring would abort
+// UpgradeResourceState and leave the resource unusable; null means "leave it
+// to the server default" and the first Read repopulates the real value. A
+// non-numeric mss or subnet_v6, by contrast, is never valid, so it fails
+// loudly rather than silently nulling a burst size / prefix length. A numeric
+// string parses normally.
 func dhcpServerMaxLeaseTimeUpgrade(v types.String, diags *diag.Diagnostics) types.Int64 {
 	if v.IsNull() || v.ValueString() == "" {
 		return types.Int64Null()
