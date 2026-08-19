@@ -2044,14 +2044,8 @@ func (r *wireGuardTunnelResource) Schema(_ context.Context, _ resource.SchemaReq
 	resp.Schema = schema.Schema{
 		Description: "Manages a WireGuard tunnel. The interface `name` (e.g. `tun_wg0`) is assigned by the system and identifies the tunnel. The tunnel addresses are managed by `pfsense_wireguard_tunnel_address`.",
 		Attributes: map[string]schema.Attribute{
-			"id": computedIDAttribute(),
-			"name": schema.StringAttribute{
-				Computed:    true,
-				Description: "The name of the WireGuard interface, assigned by the system.",
-				PlanModifiers: []planmodifier.String{
-					stringplanmodifier.UseStateForUnknown(),
-				},
-			},
+			"id":         computedIDAttribute(),
+			"name":       constantComputedStringAttribute("The name of the WireGuard interface, assigned by the system."),
 			"enabled":    optionalBoolAttribute("Enable this tunnel and any associated peers."),
 			"descr":      optionalStringAttribute("A description for this WireGuard tunnel."),
 			"listenport": optionalStringAttribute("The port WireGuard will listen on for this tunnel."),

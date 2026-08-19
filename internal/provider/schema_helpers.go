@@ -129,6 +129,9 @@ func constantComputedStringAttribute(desc string) schema.StringAttribute {
 	}
 }
 
+// constantComputedIntAttribute is the Int64 counterpart of
+// constantComputedStringAttribute; the same caveats apply (do not use for
+// values derived from updatable config).
 func constantComputedIntAttribute(desc string) schema.Int64Attribute {
 	return schema.Int64Attribute{
 		Computed:    true,

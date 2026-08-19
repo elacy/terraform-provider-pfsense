@@ -99,7 +99,7 @@ func (r *virtualIPResource) Schema(_ context.Context, _ resource.SchemaRequest, 
 		Description: "Manages a firewall virtual IP. Identified by its `descr` description.",
 		Attributes: map[string]schema.Attribute{
 			"id":     computedIDAttribute(),
-			"uniqid": constantComputedStringAttribute("The unique ID for this virtual IP, assigned by the system."),
+			"uniqid": schema.StringAttribute{Computed: true, Description: "The unique ID for this virtual IP, assigned by the system."},
 			"mode": schema.StringAttribute{
 				Required:    true,
 				Description: "The virtual IP mode: ipalias, proxyarp, carp or other.",

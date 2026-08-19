@@ -52,7 +52,7 @@ func (r *systemCRLResource) Schema(_ context.Context, _ resource.SchemaRequest, 
 		Description: "Manages a certificate revocation list (CRL). Identified by its `descr` description. Revoked certificates on an internal CRL are managed by `pfsense_system_crl_revoked_certificate`.",
 		Attributes: map[string]schema.Attribute{
 			"id":       computedIDAttribute(),
-			"refid":    constantComputedStringAttribute("The unique ID for this CRL, assigned by the system."),
+			"refid":    computedStringAttribute("The unique ID for this CRL, assigned by the system."),
 			"caref":    requiredStringAttribute("The `refid` of the certificate authority this CRL is associated with."),
 			"descr":    keyAttribute("The unique name/description for this CRL. Immutable after creation."),
 			"method":   requiredEnumAttribute("The method used to generate this CRL.", "existing", "internal"),
@@ -691,7 +691,7 @@ func (r *userAuthServerResource) Schema(_ context.Context, _ resource.SchemaRequ
 		Description: "Manages an LDAP or RADIUS authentication server. Identified by its `name`.",
 		Attributes: map[string]schema.Attribute{
 			"id":                         computedIDAttribute(),
-			"refid":                      constantComputedStringAttribute("The unique reference ID for this authentication server, assigned by the system."),
+			"refid":                      computedStringAttribute("The unique reference ID for this authentication server, assigned by the system."),
 			"type":                       requiredEnumAttribute("The type of this authentication server.", "ldap", "radius"),
 			"name":                       keyAttribute("The descriptive name for this authentication server. Unique; immutable after creation."),
 			"host":                       requiredStringAttribute("The remote IP address or hostname of the authentication server.", isIPAddressOrHostname()),

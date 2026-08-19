@@ -13,11 +13,17 @@ import (
 
 // TestConstantComputedUsesStateForUnknown verifies the plan-modifier semantics
 // that distinguish constantComputed* from a plain computed attribute. The API
-// assigns these values once and never changes them (ikeid/reqid/vpnid/vpnif,
-// uid/refid/uniqid, created_time/vlanif), but the resource Update methods do
-// not repopulate them, so after an in-place update the framework would surface
-// them as "known after apply" every plan. UseStateForUnknown must carry the
-// prior state value forward instead.
+// assigns these values once and never changes them.
+//
+// UseStateForUnknown is only correct for the VPN system-assigned IDs
+// (ikeid/reqid/vpnid/vpnif/uniqid on phase 1/2 and OpenVPN), whose Update
+// methods do NOT repopulate them from the API response: after an in-place
+// update the framework would surface them as "known after apply" every plan,
+// so the prior state value must carry forward. The other system-assigned IDs
+// (uid/refid/uniqid on the virtual IP, created_time/vlanif) ARE repopulated by
+// Update, so they must stay plain computed — UseStateForUnknown would pin the
+// stale planned value and turn any API-returned discrepancy into a hard
+// "inconsistent result after apply" instead of a silently-accepted refresh.
 func TestConstantComputedUsesStateForUnknown(t *testing.T) {
 	// A non-null prior state marks the resource as already-created (update),
 	// which is the only path where UseStateForUnknown acts.
