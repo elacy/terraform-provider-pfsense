@@ -1334,6 +1334,12 @@ func TestAccServicesNTPSettingsSingletonLive(t *testing.T) {
 					testAccCheckLiveNTPDUnchanged(),
 				),
 			},
+			{
+				ResourceName:      "pfsense_services_ntp_settings.live",
+				ImportState:       true,
+				ImportStateId:     "system",
+				ImportStateVerify: true,
+			},
 		},
 	})
 }

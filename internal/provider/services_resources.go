@@ -497,6 +497,12 @@ func (r *cronJobResource) Read(ctx context.Context, req resource.ReadRequest, re
 			state.Wday = types.StringValue(parts[4])
 			state.Who = types.StringValue(parts[5])
 			state.Command = types.StringValue(parts[6])
+		} else {
+			resp.Diagnostics.AddError(
+				"invalid cron job import ID",
+				"expected `minute hour mday month wday who command`, got: "+state.ID.ValueString(),
+			)
+			return
 		}
 	}
 	filters := map[string]string{
