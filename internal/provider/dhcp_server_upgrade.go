@@ -19,7 +19,7 @@ import (
 // pfsense_dhcp_server. The tfsdk tags use the OLD attribute names so that
 // req.State.Get decodes the prior state verbatim. The implicit SDKv2 `id`
 // attribute is intentionally absent: the v1 id is derived from the natural key
-// `interface` instead (see dhcpServerPriorID).
+// `interface` instead (see upgradeStateV0To1).
 type dhcpServerModelV0 struct {
 	DefaultLeaseTime types.Int64  `tfsdk:"default_lease_time"`
 	DenyUnknown      types.Bool   `tfsdk:"deny_unknown"`

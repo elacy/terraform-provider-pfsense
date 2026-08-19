@@ -29,7 +29,8 @@ type dnsResolverHostOverrideAliasV0 struct {
 // old SDKv2 resource pfsense_unbound_host_override (git ref origin/v1). The
 // tfsdk tags use the OLD attribute names so req.State.Get can decode prior
 // state directly. The implicit SDKv2 `id` attribute is intentionally absent:
-// it is read from req.RawState instead (see upgradeStateV0To1).
+// the v1 host/domain and id are derived from the natural key `dns` instead
+// (see upgradeStateV0To1).
 type dnsResolverHostOverrideModelV0 struct {
 	DNS         types.String                     `tfsdk:"dns"`
 	IPAddresses types.List                       `tfsdk:"ip_addresses"`

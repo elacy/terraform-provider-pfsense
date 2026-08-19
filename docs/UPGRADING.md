@@ -366,7 +366,7 @@ terraform state pull | grep -E '"max_lease_time": *"[^0-9]'
 
 The v1 `dns` was a host override written as `host.domain`. The StateUpgrader
 splits it at the first `.` into the v2 `host` and `domain` attributes, which are
-what the v2 `id` (`host.domain`) is derived from. A `dns` value with no `.` has
+what the v2 `id` (`host|domain`) is derived from. A `dns` value with no `.` has
 no domain component, so the split fails and the upgrader raises an **error**.
 This is the blocking counterpart to section 4.2: unlike `max_lease_time`
 (section 4.7), there is no null fallback here because the natural key itself

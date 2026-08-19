@@ -26,7 +26,7 @@ type firewallAliasTargetV0 struct {
 // pfsense_firewall_alias. The tfsdk tags use the OLD attribute names so that
 // req.State.Get decodes the prior state verbatim. The implicit SDKv2 `id`
 // attribute is intentionally absent: the v1 id is derived from the natural key
-// `name` instead (see firewallAliasPriorID).
+// `name` instead (see upgradeStateV0To1).
 type firewallAliasModelV0 struct {
 	Name        types.String            `tfsdk:"name"`
 	Type        types.String            `tfsdk:"type"`
