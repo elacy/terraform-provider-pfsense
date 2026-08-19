@@ -120,7 +120,6 @@ func (r *dnsResolverHostOverrideResource) upgradeStateV0To1(ctx context.Context,
 // toCurrent maps version-0 state into the version-1 model
 // (dnsResolverHostOverrideModel). Attribute renames:
 //
-//	dns           → host + domain (split at the first dot)
 //	ip_addresses  → ip
 //	description   → descr
 //	aliases       → aliases (each element: host_name→host, domain_name→domain,
@@ -128,7 +127,8 @@ func (r *dnsResolverHostOverrideResource) upgradeStateV0To1(ctx context.Context,
 //
 // Optional strings go through emptyToNull so the SDKv2 "" zero value does not
 // land in version-1 state as an empty string where the framework means null.
-// The computed "id" (host|domain) is set by the StateUpgrader, not here.
+// The host, domain, and computed "id" ("<host>|<domain>") are derived by the
+// StateUpgrader (upgradeStateV0To1) from the natural key "dns", not here.
 func (m dnsResolverHostOverrideModelV0) toCurrent(ctx context.Context) (dnsResolverHostOverrideModel, diag.Diagnostics) {
 	var diags diag.Diagnostics
 

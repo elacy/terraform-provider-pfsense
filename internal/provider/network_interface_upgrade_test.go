@@ -250,10 +250,11 @@ func TestNetworkInterfaceModelV0ToCurrentTypeMapping(t *testing.T) {
 		typev6     string
 		wantTypev4 string
 		wantTypev6 string
+		wantWarn   bool
 	}{
 		{name: "staticv4", typev4: "staticv4", typev6: "staticv6", wantTypev4: "static", wantTypev6: "staticv6"},
 		{name: "dhcp", typev4: "dhcp", typev6: "dhcp6", wantTypev4: "dhcp", wantTypev6: "dhcp6"},
-		{name: "unset", typev4: "", typev6: "", wantTypev4: "none", wantTypev6: ""},
+		{name: "unset", typev4: "", typev6: "", wantTypev4: "none", wantTypev6: "", wantWarn: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			prior := networkInterfaceModelV0{
@@ -267,7 +268,11 @@ func TestNetworkInterfaceModelV0ToCurrentTypeMapping(t *testing.T) {
 			if diags.HasError() {
 				t.Fatalf("unexpected diagnostics: %s", diags)
 			}
-			if diags.WarningsCount() != 0 {
+			if tc.wantWarn {
+				if diags.WarningsCount() != 1 {
+					t.Fatalf("got %d warnings, want exactly 1 for the unset-type migration: %s", diags.WarningsCount(), diags.Warnings())
+				}
+			} else if diags.WarningsCount() != 0 {
 				t.Errorf("unexpected warnings: %s", diags.Warnings())
 			}
 			if cur.Typev4.ValueString() != tc.wantTypev4 {

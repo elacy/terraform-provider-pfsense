@@ -352,9 +352,12 @@ terraform state pull | grep -E '"(dhcp_cv_pt|dhcp_vlan_enable)": *(true|[1-9])'
 8. Add the arguments that became required in v2 (section 4.5): `ipprotocol`,
    `source` and `destination` on firewall rules; `typev4`, `ipaddr` and
    `subnet` on network interfaces.
-9. `terraform plan` — expect **no** diffs (StateUpgraders migrate in place);
-   any remaining "forces replacement" on a migrated resource, or any in-place
-   `typev4` change, is a red flag to investigate before applying.
+9. `terraform plan` — expect no *replacements* and no unexplained changes
+   (StateUpgraders migrate in place). Attributes that were normalised to null
+   (section 3) may still show a small in-place diff against the API's value on
+   later refreshes; that is expected and harmless. Any remaining "forces
+   replacement" on a migrated resource, or any in-place `typev4` change, is a
+   red flag to investigate before applying.
 10. `terraform apply`.
 
 If a resource does force replacement after following this guide, file an issue

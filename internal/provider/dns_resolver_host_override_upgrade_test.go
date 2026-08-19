@@ -214,8 +214,8 @@ func TestDNSResolverHostOverrideModelV0ToCurrent(t *testing.T) {
 	if got, want := current.Descr.ValueString(), "web server"; got != want {
 		t.Errorf("descr = %q, want %q", got, want)
 	}
-	// host/domain/id are derived from the resource id by the StateUpgrader,
-	// not by toCurrent.
+	// host/domain/id are derived from the `dns` attribute by the StateUpgrader
+	// (which deliberately ignores the raw id), not by toCurrent.
 	if got, want := current.Host.ValueString(), ""; got != want {
 		t.Errorf("host must not be set by toCurrent, got %q", got)
 	}

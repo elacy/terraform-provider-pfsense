@@ -142,7 +142,8 @@ func (m dhcpServerModelV0) toCurrent(ctx context.Context) (dhcpServerModel, diag
 // `denyunknown` string.
 //
 // On pfsense_services_dhcp_server `denyunknown` is an unvalidated optional
-// string whose domain is "enabled" / "disabled". Only true has an unambiguous
+// string; the sibling pfsense_services_dhcp_address_pool exposes the same API
+// field with domain "enabled" / "class". Only true has an unambiguous
 // spelling ("enabled"); false is the SDKv2 zero value for an unset optional
 // bool and cannot be told apart from an explicit off, so it is normalised to
 // null (the attribute is Optional) and the first Read re-populates the real

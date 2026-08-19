@@ -122,8 +122,10 @@ func TestDHCPStaticMappingUpgradeStateV0To1(t *testing.T) {
 	}
 }
 
-// TestDHCPStaticMappingUpgradeStateV0To1MissingID covers the fallback: when the
-// prior raw state has no implicit "id", the natural-key attributes are used.
+// TestDHCPStaticMappingUpgradeStateV0To1MissingID covers the case where the
+// prior raw state carries no implicit "id": the upgrader derives the id from
+// the natural-key attributes (interface + mac) unconditionally — it never
+// consults req.RawState.
 func TestDHCPStaticMappingUpgradeStateV0To1MissingID(t *testing.T) {
 	ctx := context.Background()
 

@@ -227,7 +227,7 @@ func TestAliasUpgradeStateV0To1(t *testing.T) {
 	}
 }
 
-func TestAliasUpgradeStateV0To1FallbackID(t *testing.T) {
+func TestAliasUpgradeStateV0To1NaturalKeyID(t *testing.T) {
 	ctx := context.Background()
 
 	prior := firewallAliasModelV0{

@@ -86,6 +86,16 @@ func (r *firewallAliasResource) upgradeStateV0To1(ctx context.Context, req resou
 		return
 	}
 
+	// `name` is Required in v0 so it is always populated, but guard it anyway
+	// (defense-in-depth): an empty id would make Read/Update/Delete target the
+	// first unrelated alias via findByKey(..., "name", "").
+	if prior.Name.ValueString() == "" {
+		resp.Diagnostics.AddError(
+			"failed to upgrade state for pfsense_firewall_alias",
+			"unable to derive the resource id from the prior state: \"name\" is empty",
+		)
+		return
+	}
 	cur.ID = firewallAliasPriorID(prior)
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &cur)...)

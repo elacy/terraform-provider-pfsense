@@ -245,7 +245,7 @@ func TestDhcpServerUpgradeStateV0To1(t *testing.T) {
 	}
 }
 
-func TestDhcpServerUpgradeStateV0To1FallbackID(t *testing.T) {
+func TestDhcpServerUpgradeStateV0To1NaturalKeyID(t *testing.T) {
 	ctx := context.Background()
 
 	prior := dhcpServerModelV0{

@@ -74,12 +74,14 @@ func (r *interfaceVLANResource) upgradeStateV0To1(ctx context.Context, req resou
 	}
 
 	// Both natural-key attributes are Required in v0, so they are always
-	// populated; the v1 Read looks the VLAN up by `if` + `tag`.
+	// populated; the v1 Read looks the VLAN up by `if` + `tag`. Guard both
+	// anyway (defense-in-depth): a missing `tag` would yield id "<if>|0" and
+	// the v1 Read would find nothing, silently dropping the resource.
 	iface := prior.If.ValueString()
-	if iface == "" {
+	if iface == "" || prior.Tag.IsNull() {
 		resp.Diagnostics.AddError(
 			"failed to upgrade state for pfsense_interface_vlan",
-			"unable to derive the resource id from the prior state: \"if\" is empty",
+			"unable to derive the resource id from the prior state: \"if\" is empty and/or \"tag\" is unset",
 		)
 		return
 	}

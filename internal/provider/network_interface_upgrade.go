@@ -286,6 +286,13 @@ func networkInterfaceDroppedAttributeWarnings(m networkInterfaceModelV0) diag.Di
 func networkInterfaceTypev4ToCurrent(v types.String, diags *diag.Diagnostics) types.String {
 	switch typev4 := v.ValueString(); {
 	case v.IsNull() || v.IsUnknown() || typev4 == "":
+		diags.AddWarning(
+			"Interface type unset during state upgrade",
+			"The v0 interface did not set `type`, so `typev4` was migrated as \"none\". "+
+				"Set `typev4` explicitly in your configuration to the addressing mode this "+
+				"interface actually uses (\"static\" or \"dhcp\"), then re-apply; otherwise "+
+				"the first apply may drop its IPv4 address.",
+		)
 		return types.StringValue("none")
 	case typev4 == "staticv4":
 		return types.StringValue("static")
