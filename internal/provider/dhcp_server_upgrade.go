@@ -106,18 +106,11 @@ func (r *dhcpServerResource) upgradeStateV0To1(ctx context.Context, req resource
 		)
 		return
 	}
-	cur.ID = dhcpServerPriorID(prior)
+	// The v1 id is the interface (`id == interface`, set by dhcpServerResource.Read);
+	// it is derived from the natural key, not the raw v0 id.
+	cur.ID = prior.Interface
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &cur)...)
-}
-
-// dhcpServerPriorID derives the v1 resource id from the natural key
-// (`interface`), which v0 validated as Required and v1
-// dhcpServerResource.Read sets as state.ID. Carrying the raw v0 id over
-// instead would leave state out of the v1 `id == interface` contract until the
-// first Read.
-func dhcpServerPriorID(prior dhcpServerModelV0) types.String {
-	return prior.Interface
 }
 
 // dhcpServerMaxLeaseTimeUpgrade converts the v0 `max_lease_time` string to the

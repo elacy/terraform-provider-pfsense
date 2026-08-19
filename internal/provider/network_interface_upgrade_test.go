@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/attr"
@@ -554,6 +555,57 @@ func TestNetworkInterfaceUpgradeStateMap(t *testing.T) {
 	}
 }
 
+// TestNetworkInterfaceModelV0ToCurrentDroppedAttributeWarnings covers the v0
+// attributes the v1 pfsense_network_interface resource does not model
+// (`dhcp_cv_pt`, `dhcp_vlan_enable`). They are functional DHCP settings, so
+// dropping them must be surfaced rather than silent.
+func TestNetworkInterfaceModelV0ToCurrentDroppedAttributeWarnings(t *testing.T) {
+	ctx := context.Background()
+
+	for _, tc := range []struct {
+		name  string
+		prior networkInterfaceModelV0
+	}{
+		{"dhcp_cv_pt", networkInterfaceModelV0{DhcpCvPt: types.Int64Value(3)}},
+		{"dhcp_vlan_enable", networkInterfaceModelV0{DhcpVlanEnable: types.BoolValue(true)}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// `type` must be a valid value so the typev4 "unset" warning does
+			// not fire and dilute the single-warning assertion below.
+			prior := tc.prior
+			prior.Type = types.StringValue("staticv4")
+
+			_, diags := prior.toCurrent(ctx)
+			if diags.HasError() {
+				t.Fatalf("unexpected error diagnostics: %s", diags)
+			}
+			if len(diags) != 1 {
+				t.Fatalf("diags = %d entries, want 1 warning: %s", len(diags), diags)
+			}
+			if got := diags[0].Severity().String(); got != "Warning" {
+				t.Errorf("diag severity = %s, want Warning", got)
+			}
+			if !strings.Contains(diags[0].Detail(), tc.name) {
+				t.Errorf("warning detail %q does not name the dropped attribute %q", diags[0].Detail(), tc.name)
+			}
+			if !strings.Contains(diags[0].Detail(), "pfsense_network_interface") {
+				t.Errorf("warning detail %q does not point at pfsense_network_interface", diags[0].Detail())
+			}
+		})
+	}
+
+	// dhcp_cv_pt=0 and dhcp_vlan_enable=false (the SDKv2 zero values for unset
+	// optional attributes) must not warn.
+	_, diags := (networkInterfaceModelV0{
+		Type:           types.StringValue("staticv4"),
+		DhcpCvPt:       types.Int64Value(0),
+		DhcpVlanEnable: types.BoolValue(false),
+	}).toCurrent(ctx)
+	if len(diags) != 0 {
+		t.Errorf("unset v0 attributes produced %d diagnostics, want none: %s", len(diags), diags)
+	}
+}
+
 // TestNetworkInterfaceUpgradeStateV0To1RawJSON decodes the prior state from
 // raw JSON against networkInterfacePriorSchemaV0 (not via priorState.Set), so
 // that a type or name mismatch between the PriorSchema and what SDKv2 actually
@@ -570,7 +622,9 @@ func TestNetworkInterfaceUpgradeStateV0To1RawJSON(t *testing.T) {
 		"description": "WAN",
 		"type":        "",
 		"ip_address":  "10.0.0.1",
+		"mss":         "1500",
 		"subnet":      24,
+		"subnet_v6":   "64",
 		"spoof_mac":   "00:11:22:33:44:55",
 	})
 	if err != nil {
@@ -632,6 +686,14 @@ func TestNetworkInterfaceUpgradeStateV0To1RawJSON(t *testing.T) {
 	// spoof_mac -> spoofmac
 	if got, want := got.Spoofmac.ValueString(), "00:11:22:33:44:55"; got != want {
 		t.Errorf("Spoofmac = %q, want %q", got, want)
+	}
+	// mss and subnet_v6 are retyped string -> int (the highest-risk PriorSchema
+	// transcription targets); supplying them as JSON strings exercises that path.
+	if got, want := got.Mss.ValueInt64(), int64(1500); got != want {
+		t.Errorf("Mss = %d, want %d (retyped from string)", got, want)
+	}
+	if got, want := got.Subnetv6.ValueInt64(), int64(64); got != want {
+		t.Errorf("Subnetv6 = %d, want %d (retyped from string)", got, want)
 	}
 	// An unset v0 `type` (the SDKv2 "" zero value) becomes the explicit
 	// "none" because typev4 is Required in v1 and can never be null.

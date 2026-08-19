@@ -137,8 +137,9 @@ each carrying a comment in `internal/provider/*_upgrade.go` explaining why:
   normalised to null (see `firewall_alias_upgrade.go`).
 - `pfsense_network_interface.typev4` — an unset v0 `type` is synthesised as
   `"none"` rather than null because `typev4` is required and can never be
-  null; `"none"` is an honest "unknown", not a retained zero value (see
-  section 4.4 and `network_interface_upgrade.go`).
+  null; `"none"` is an honest "unknown", not a retained zero value. The
+  upgrader also emits a **warning** in this case so the unset mode is not
+  silently lost (see section 4.4 and `network_interface_upgrade.go`).
 
 ### `pfsense_services_dhcp_server` — attributes not carried over
 
@@ -178,7 +179,9 @@ pfSense `/api/v2/firewall/rule` endpoint. Section 4.4 covers the
 attributes that were optional in v1 and are required in v2 across both
 resources, and section 4.6 covers `pfsense_network_interface` attributes that
 are no longer modelled. Section 4.7 covers a `pfsense_services_dhcp_server`
-value that cannot be represented in v2.
+value that cannot be represented in v2, and sections 4.8–4.9 cover the two
+remaining upgrade-blocking errors (a `pfsense_unbound_host_override` host
+override with no domain, and a non-numeric `mss`/`subnet_v6`).
 
 ### 4.1 Floating rules are no longer modelled
 
@@ -249,13 +252,15 @@ than copied. The StateUpgrader applies this mapping:
 | -------------- | ----------- | -------------------------------------------------- |
 | `staticv4`     | `static`    | renamed                                             |
 | `dhcp`         | `dhcp`      | unchanged                                           |
-| `""` (unset)   | `none`      | `typev4` is required, so it can never be left null  |
+| `""` (unset)   | `none`      | **warning** — `typev4` is required, so it can never be left null  |
 | anything else  | `none`      | **warning** — should not occur; see below           |
 
 Nothing outside that set can be produced by the v1 provider (its validator
 rejected it), but if hand-edited state contains one the upgrader emits a
 **warning** and writes `none`, so the upgraded state stays valid instead of
-failing the v2 `OneOf` validator on the next plan.
+failing the v2 `OneOf` validator on the next plan. An unset (`""`) `type` —
+the SDKv2 zero value for an omitted optional string — emits the same warning,
+because it means the interface's real IPv4 mode was never recorded in Terraform.
 
 **Update your configuration to match**: set `typev4` to the addressing mode the
 interface *actually* uses — check the pfSense UI, or run `terraform state pull`
@@ -357,6 +362,45 @@ Check for affected servers before upgrading:
 terraform state pull | grep -E '"max_lease_time": *"[^0-9]'
 ```
 
+### 4.8 `pfsense_unbound_host_override` — a `dns` value with no dot blocks the upgrade
+
+The v1 `dns` was a host override written as `host.domain`. The StateUpgrader
+splits it at the first `.` into the v2 `host` and `domain` attributes, which are
+what the v2 `id` (`host.domain`) is derived from. A `dns` value with no `.` has
+no domain component, so the split fails and the upgrader raises an **error**.
+This is the blocking counterpart to section 4.2: unlike `max_lease_time`
+(section 4.7), there is no null fallback here because the natural key itself
+is the unparseable value.
+
+Check for affected overrides before upgrading:
+
+```bash
+terraform state pull | grep -E '"dns": *"[^."]+"'
+```
+
+If a value has no domain, correct it in the pfSense UI (host overrides should
+be FQDNs like `alarm.lan`) and refresh the v1 state so a proper `host.domain`
+is recorded, then re-run the upgrade.
+
+### 4.9 `pfsense_network_interface` — a non-numeric `mss` / `subnet_v6` blocks the upgrade
+
+`mss` and `subnet_v6` were unvalidated optional strings in v1 and are retyped
+to integers in v2. Unlike `max_lease_time` (section 4.7) — where `"infinite"`
+is a legitimate value — there is no valid non-numeric `mss` or `subnet_v6`, so
+the upgrader raises an **error** rather than dropping it silently. (The
+`"infinite"` lenient path in section 4.7 is specific to `max_lease_time`; do
+not assume the same behaviour here.)
+
+Check for affected interfaces before upgrading:
+
+```bash
+terraform state pull | grep -E '"(mss|subnet_v6)": *"[^0-9"]'
+```
+
+If one is non-numeric, canonicalise the burst size / prefix length in the
+pfSense UI (or hand-edit the backed-up state file) so the attribute holds a
+plain integer, then re-run the upgrade.
+
 ---
 
 ## 5. Recommended migration order
@@ -381,13 +425,16 @@ terraform state pull | grep -E '"max_lease_time": *"[^0-9]'
 8. Add the arguments that became required in v2 (section 4.5): `ipprotocol`,
    `source` and `destination` on firewall rules; `typev4`, `ipaddr` and
    `subnet` on network interfaces.
-9. `terraform plan` — expect no *replacements* and no unexplained changes
+9. Check for the two remaining upgrade-blocking conditions (sections 4.8–4.9):
+   a `pfsense_unbound_host_override` whose `dns` has no dot, and a
+   non-numeric `mss` / `subnet_v6` on a `pfsense_network_interface`.
+10. `terraform plan` — expect no *replacements* and no unexplained changes
    (StateUpgraders migrate in place). Attributes that were normalised to null
    (section 3) may still show a small in-place diff against the API's value on
    later refreshes; that is expected and harmless. Any remaining "forces
    replacement" on a migrated resource, or any in-place `typev4` change, is a
    red flag to investigate before applying.
-10. `terraform apply`.
+11. `terraform apply`.
 
 If a resource does force replacement after following this guide, file an issue
 with the resource type and a redacted snippet of the `plan` diff — do not apply.

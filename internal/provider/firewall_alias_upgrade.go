@@ -96,17 +96,11 @@ func (r *firewallAliasResource) upgradeStateV0To1(ctx context.Context, req resou
 		)
 		return
 	}
-	cur.ID = firewallAliasPriorID(prior)
+	// The v1 id is the alias name (`id == name`, matching the old d.SetId(name));
+	// it is derived from the natural key `name`, not the raw v0 id.
+	cur.ID = prior.Name
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &cur)...)
-}
-
-// firewallAliasPriorID derives the v1 resource id from the natural key
-// (`name`), which v0 validated as Required. The v1 id is the alias name
-// (matching the old d.SetId(name)), so deriving it keeps state in the v1
-// `id == name` contract rather than carrying the raw v0 id over.
-func firewallAliasPriorID(prior firewallAliasModelV0) types.String {
-	return prior.Name
 }
 
 // toCurrent maps every v0 value to its v1 home:
