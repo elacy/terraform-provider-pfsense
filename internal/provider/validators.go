@@ -56,6 +56,28 @@ func isIPAddress() validator.String {
 	}
 }
 
+// isIPv4Address accepts a bare IPv4 address (no prefix length).
+func isIPv4Address() validator.String {
+	return stringCheck{
+		desc: "must be a valid IPv4 address",
+		ok: func(s string) bool {
+			a, err := netip.ParseAddr(s)
+			return err == nil && a.Is4()
+		},
+	}
+}
+
+// isIPv6Address accepts a bare IPv6 address (no prefix length).
+func isIPv6Address() validator.String {
+	return stringCheck{
+		desc: "must be a valid IPv6 address",
+		ok: func(s string) bool {
+			a, err := netip.ParseAddr(s)
+			return err == nil && a.Is6()
+		},
+	}
+}
+
 // isCIDR accepts an IPv4 or IPv6 network in prefix notation. Host bits are
 // permitted, matching what pfSense itself accepts for tunnel networks.
 func isCIDR() validator.String {
@@ -138,7 +160,7 @@ func isPort() validator.String {
 
 // isPortOrRange accepts a port (1-65535), a `start:end` port range, or a named
 // port alias. pfSense lets port fields hold alias names as well as numbers, so
-// any non-numeric value is accepted as an alias while numeric values are
+// non-numeric values must match pfSense's alias-name charset while numeric values are
 // bounded to the valid port range.
 func isPortOrRange() validator.String {
 	return stringCheck{
@@ -148,7 +170,7 @@ func isPortOrRange() validator.String {
 				return false
 			}
 			if !portishRe.MatchString(s) {
-				return true // non-numeric: a port alias
+				return aliasNameRe.MatchString(s) // non-numeric: a firewall alias name
 			}
 			parts := strings.Split(s, ":")
 			if len(parts) > 2 {

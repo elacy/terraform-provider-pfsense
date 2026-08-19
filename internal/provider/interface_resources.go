@@ -116,7 +116,7 @@ func (r *networkInterfaceResource) Schema(_ context.Context, _ resource.SchemaRe
 			// ipaddr is Required but only meaningful for a static typev4; a
 			// dhcp/none interface has no address and "" is its only "unset"
 			// value, so the shape validator must tolerate the empty string.
-			"ipaddr":                             requiredStringAttribute("IPv4 address (used when `typev4` is `static`).", allowEmpty(isIPAddress())),
+			"ipaddr":                             requiredStringAttribute("IPv4 address (used when `typev4` is `static`).", allowEmpty(isIPv4Address())),
 			"subnet":                             requiredIntAttribute("IPv4 subnet bit count (used when `typev4` is `static`).", isSubnetBits(32)),
 			"gateway":                            optionalStringAttribute("IPv4 gateway (gateway or gateway group name)."),
 			"dhcphostname":                       optionalStringAttribute("Hostname to send to the DHCP server."),
@@ -151,7 +151,7 @@ func (r *networkInterfaceResource) Schema(_ context.Context, _ resource.SchemaRe
 			// Marking any of them required would force a config to send values
 			// the API discards, and every apply would then leave a permanent
 			// diff. Supply only the ones the chosen `typev6` mode uses.
-			"ipaddrv6":             optionalStringAttribute("IPv6 address (used when `typev6` is `staticv6`).", isIPAddress()),
+			"ipaddrv6":             optionalStringAttribute("IPv6 address (used when `typev6` is `staticv6`).", isIPv6Address()),
 			"subnetv6":             optionalIntAttribute("IPv6 subnet bit count (used when `typev6` is `staticv6`).", isSubnetBits(128)),
 			"gatewayv6":            optionalStringAttribute("Optional IPv6 gateway (gateway name)."),
 			"ipv6usev4iface":       optionalBoolAttribute("Use IPv4 gateway as the IPv6 gateway."),

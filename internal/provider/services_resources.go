@@ -84,7 +84,7 @@ func (r *dhcpServerResource) Schema(_ context.Context, _ resource.SchemaRequest,
 				NestedObject: schema.NestedAttributeObject{
 					Attributes: map[string]schema.Attribute{
 						"mac":      requiredStringAttribute("Client MAC address.", isMAC()),
-						"ipaddr":   requiredStringAttribute("Reserved IP address.", isIPAddress()),
+						"ipaddr":   requiredStringAttribute("Reserved IP address.", allowEmpty(isIPAddress())),
 						"cid":      optionalStringAttribute("Client identifier."),
 						"hostname": optionalStringAttribute("Client hostname.", isHostname()),
 						"descr":    optionalStringAttribute("Description."),

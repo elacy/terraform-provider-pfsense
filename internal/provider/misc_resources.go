@@ -257,7 +257,7 @@ func (r *interfaceVLANResource) Schema(_ context.Context, _ resource.SchemaReque
 			},
 			"pcp":    optionalIntAttribute("802.1p priority code point (0-7).", int64validator.Between(0, 7)),
 			"descr":  optionalStringAttribute("Description for the VLAN."),
-			"vlanif": computedStringAttribute("The generated VLAN interface name (e.g. `vlan0.10`)."),
+			"vlanif": schema.StringAttribute{Computed: true, Description: "The generated VLAN interface name (e.g. `vlan0.10`)."},
 		},
 	}
 }

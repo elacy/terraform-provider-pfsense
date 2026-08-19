@@ -80,7 +80,9 @@ func TestStringValidators(t *testing.T) {
 
 		{"port range", isPortOrRange(), "8000:9000", true},
 		{"single port is a range", isPortOrRange(), "80", true},
-		{"port range accepts alias", isPortOrRange(), "web-alias", true},
+		{"port range accepts alias", isPortOrRange(), "web_alias", true},
+		{"port range rejects hyphen alias", isPortOrRange(), "web-alias", false},
+		{"port range rejects comma", isPortOrRange(), "80,443", false},
 		{"port range rejects out of range", isPortOrRange(), "8000:99999", false},
 		{"port range rejects triple", isPortOrRange(), "80:90:100", false},
 		{"port range rejects empty", isPortOrRange(), "", false},
@@ -97,6 +99,11 @@ func TestStringValidators(t *testing.T) {
 		{"ip or none takes ip", isIPAddressOrNone(), "10.0.0.1", true},
 		{"ip or none takes none", isIPAddressOrNone(), "none", true},
 		{"ip or none rejects junk", isIPAddressOrNone(), "not-an-ip", false},
+
+		{"ipv4 addr takes v4", isIPv4Address(), "192.168.1.1", true},
+		{"ipv4 addr rejects v6", isIPv4Address(), "2001:db8::1", false},
+		{"ipv6 addr takes v6", isIPv6Address(), "2001:db8::1", true},
+		{"ipv6 addr rejects v4", isIPv6Address(), "192.168.1.1", false},
 
 		{"cidr or alias takes cidr", isCIDROrAlias(), "10.0.0.0/24", true},
 		{"cidr or alias takes alias", isCIDROrAlias(), "internal_networks", true},
@@ -125,6 +132,8 @@ func TestStringValidatorsSkipNullAndUnknown(t *testing.T) {
 		"isIPAddressOrDynamic":  isIPAddressOrDynamic(),
 		"isIPAddressOrNone":     isIPAddressOrNone(),
 		"isCIDROrAlias":         isCIDROrAlias(),
+		"isIPv4Address":         isIPv4Address(),
+		"isIPv6Address":         isIPv6Address(),
 		"isPort":                isPort(),
 		"isPortOrRange":         isPortOrRange(),
 		"isMAC":                 isMAC(),
