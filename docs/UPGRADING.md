@@ -277,13 +277,23 @@ Set it to the real mode, and reserve `none` only for interfaces with no IPv4.
 of the v1 one. An unset (`""`) v1 `type_v6` is normalised to null (typev6 is
 Optional and not Computed), and the first Read re-populates what pfSense reports
 back for an interface with no
-IPv6 configuration.
+IPv6 configuration. A value outside that set (hand-edited state) is carried over
+verbatim with a **warning** naming it, since it will otherwise fail the v2
+`OneOf` validator on the next plan.
 
 Check which interfaces are affected before upgrading:
 
 ```bash
 terraform state pull | grep -E '"type": *"(staticv4|dhcp)?"'
 ```
+
+This grep also matches every other resource that carries a bare `type` key —
+`pfsense_firewall_alias`, `pfsense_firewall_rule`,
+`pfsense_services_dhcp_custom_option` and `pfsense_services_ntp_time_server` —
+so cross-check the resource address (`terraform state list`) before acting.
+Acting on a wrong hit here is the most dangerous of the triage steps: it can
+leave `typev4 = "none"` on an interface that actually has IPv4, which drops its
+address on the next apply.
 
 ### 4.5 Attributes that were optional in v1 and are required in v2
 

@@ -210,7 +210,7 @@ func (m networkInterfaceModelV0) toCurrent(ctx context.Context) (networkInterfac
 	cur.AdvDHCPOptionModifiers = emptyToNull(m.AdvDhcpOptionModifiers)
 	cur.AdvDHCPConfigFileOverride = falseToNull(m.AdvDhcpConfigFileOverride)
 	cur.AdvDHCPConfigFileOverridePath = emptyToNull(m.AdvDhcpConfigFileOverrideFile)
-	cur.Typev6 = networkInterfaceTypev6ToCurrent(m.TypeV6)
+	cur.Typev6 = networkInterfaceTypev6ToCurrent(m.TypeV6, &diags)
 	cur.Ipaddrv6 = emptyToNull(m.IpAddressV6)
 	cur.Subnetv6 = upgradeStringToInt64(m.SubnetV6, "subnet_v6", "pfsense_interface", &diags)
 	cur.Gatewayv6 = emptyToNull(m.GatewayV6)
@@ -327,12 +327,28 @@ func networkInterfaceTypev4ToCurrent(v types.String, diags *diag.Diagnostics) ty
 // is normalised to null (typev6 is Optional and not Computed, so synthesising
 // "none" would surface a spurious "none" -> null diff on the first plan); the
 // first Read then writes the real value.
-func networkInterfaceTypev6ToCurrent(v types.String) types.String {
+//
+// Anything else (hand-edited state, or a v0 spelling the unverified "superset"
+// claim missed) would migrate silently and then fail the v1 OneOf validator on
+// the next plan, so it surfaces as a warning naming the value — the same reason
+// firewall_rule_upgrade.go warns on ip_protocol = "inet46".
+func networkInterfaceTypev6ToCurrent(v types.String, diags *diag.Diagnostics) types.String {
 	if v.IsUnknown() {
 		return v
 	}
 	if v.IsNull() || v.ValueString() == "" {
 		return types.StringNull()
+	}
+	if typev6 := v.ValueString(); typev6 != "staticv6" && typev6 != "dhcp6" &&
+		typev6 != "slaac" && typev6 != "6rd" && typev6 != "track6" &&
+		typev6 != "6to4" && typev6 != "none" {
+		diags.AddWarning(
+			"Unsupported interface type_v6 value carried into upgraded state",
+			"The v0 interface set `type_v6 = \""+typev6+"\"`, which is outside the v2 `typev6` "+
+				"domain (\"staticv6\", \"dhcp6\", \"slaac\", \"6rd\", \"track6\", \"6to4\", \"none\"). "+
+				"The value was carried over verbatim, so the next plan will reject it. Set `typev6` "+
+				"explicitly in your configuration to one of the supported modes, then re-apply.",
+		)
 	}
 	return v
 }

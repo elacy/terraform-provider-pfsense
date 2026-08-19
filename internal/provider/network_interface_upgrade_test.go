@@ -317,6 +317,38 @@ func TestNetworkInterfaceModelV0ToCurrentUnknownTypeWarns(t *testing.T) {
 	}
 }
 
+func TestNetworkInterfaceModelV0ToCurrentUnknownTypeV6Warns(t *testing.T) {
+	ctx := context.Background()
+
+	// The v0 `type_v6` was validated with StringInSlice(["staticv6", "dhcp6",
+	// "slaac", "6rd", "track6", "6to4"]), so prior state should only hold those
+	// or "". A value outside that set (hand-edited state) must warn, because it
+	// will otherwise migrate silently and fail the v1 OneOf validator on the
+	// next plan.
+	prior := networkInterfaceModelV0{
+		If:          types.StringValue("wan"),
+		Description: types.StringValue("WAN"),
+		Type:        types.StringValue("staticv4"),
+		TypeV6:      types.StringValue("not-a-mode"),
+	}
+
+	cur, diags := prior.toCurrent(ctx)
+	if diags.HasError() {
+		t.Fatalf("unexpected error diagnostics: %s", diags)
+	}
+	if diags.WarningsCount() != 1 {
+		t.Fatalf("warnings = %d, want 1: %s", diags.WarningsCount(), diags)
+	}
+	if !strings.Contains(diags.Warnings()[0].Detail(), "type_v6") {
+		t.Errorf("warning %q does not name the type_v6 attribute", diags.Warnings()[0].Detail())
+	}
+	// The value is carried over verbatim (typev6 is Optional; a warning is the
+	// correct signal, a rewrite would invent a mode the user never set).
+	if cur.Typev6.ValueString() != "not-a-mode" {
+		t.Errorf("Typev6 = %q, want the original value carried over verbatim", cur.Typev6.ValueString())
+	}
+}
+
 func TestNetworkInterfaceModelV0ToCurrentZeroValueNormalisation(t *testing.T) {
 	ctx := context.Background()
 
