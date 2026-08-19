@@ -63,6 +63,7 @@ func (r *dhcpServerResource) Configure(ctx context.Context, req resource.Configu
 }
 func (r *dhcpServerResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
+		Version:     1,
 		Description: "Manages a DHCP server on an interface.",
 		Attributes: map[string]schema.Attribute{
 			"id":               computedIDAttribute(),
@@ -263,6 +264,7 @@ func (r *dnsResolverHostOverrideResource) Configure(ctx context.Context, req res
 }
 func (r *dnsResolverHostOverrideResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
+		Version:     1,
 		Description: "Manages a DNS resolver host override. Identified by `host` and `domain`.",
 		Attributes: map[string]schema.Attribute{
 			"id":     computedIDAttribute(),

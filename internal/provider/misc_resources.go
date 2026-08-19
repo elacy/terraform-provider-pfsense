@@ -236,6 +236,7 @@ func (r *interfaceVLANResource) Configure(ctx context.Context, req resource.Conf
 }
 func (r *interfaceVLANResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
+		Version:     1,
 		Description: "Manages a VLAN interface. Identified by parent interface and VLAN tag.",
 		Attributes: map[string]schema.Attribute{
 			"id": computedIDAttribute(),

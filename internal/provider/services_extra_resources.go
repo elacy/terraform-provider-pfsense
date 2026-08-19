@@ -62,6 +62,7 @@ func (r *dhcpStaticMappingResource) Configure(ctx context.Context, req resource.
 }
 func (r *dhcpStaticMappingResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
+		Version:     1,
 		Description: "Manages a DHCP static mapping on a DHCP server. Identified by the parent interface and the client MAC address.",
 		Attributes: map[string]schema.Attribute{
 			"id": computedIDAttribute(),
