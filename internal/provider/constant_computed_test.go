@@ -108,18 +108,17 @@ func (m *ipsecPhase1Mock) handler() http.Handler {
 // TestAccIPsecPhase1ConstantIkeid verifies the observable behaviour a
 // system-assigned ID (ikeid) provides across the resource lifecycle: the API
 // assigns it on create, the provider does NOT send it back on update (the mock
-// returns 422 if it does, proving the computed-only constantComputed* attribute
-// is excluded from the Update payload), and it therefore survives an in-place
-// update of a non-key attribute unchanged, with the follow-up plan carrying it
-// forward as a known value rather than "known after apply".
+// returns 422 if it does), and it therefore survives an in-place update of a
+// non-key attribute unchanged.
 //
-// This test exercises the resource lifecycle. It deliberately does NOT assert
-// the UseStateForUnknown plan modifier fires, because for these attributes it
-// cannot: Terraform core already carries a computed-only value forward on an
-// in-place update (so the modifier's "known planned value" guard returns early),
-// and its only firing path — a prior state that holds the attribute null, e.g.
-// straight after import or a state upgrade — is unreachable here because Read
-// repopulates ikeid from the API on every refresh.
+// The second step asserts ikeid plans as a known value rather than "known
+// after apply" (plancheck.ExpectKnownValue). That is exactly what the
+// UseStateForUnknown plan modifier guarantees for these attributes — removing
+// the modifier from ikeid makes this check fail — so the test does exercise
+// the modifier. The mock's 422 guard, by contrast, is belt-and-suspenders over
+// unchanged payload() behaviour: the provider never emitted ikeid on update,
+// before or after this PR, and the guard does not itself depend on the
+// modifier.
 func TestAccIPsecPhase1ConstantIkeid(t *testing.T) {
 	mock := &ipsecPhase1Mock{}
 	srv := httptest.NewServer(mock.handler())
