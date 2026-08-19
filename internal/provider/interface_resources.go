@@ -5,6 +5,7 @@ import (
 
 	"github.com/elacy/terraform-provider-pfsense/v2/internal/client"
 	"github.com/hashicorp/terraform-plugin-framework-validators/int64validator"
+	"github.com/hashicorp/terraform-plugin-framework-validators/listvalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -421,7 +422,7 @@ func (r *interfaceBridgeResource) Schema(_ context.Context, _ resource.SchemaReq
 		Description: "Manages a bridge interface. Identified by its description.",
 		Attributes: map[string]schema.Attribute{
 			"id":      computedIDAttribute(),
-			"members": requiredStringListAttribute("Physical interfaces that are members of the bridge."),
+			"members": requiredStringListAttribute("Physical interfaces that are members of the bridge.", listvalidator.SizeAtLeast(1)),
 			"descr": schema.StringAttribute{
 				Required:    true,
 				Description: "Description (name) of the bridge. Unique among bridges; immutable after creation.",
@@ -793,7 +794,7 @@ func (r *interfaceLAGGResource) Schema(_ context.Context, _ resource.SchemaReque
 		Description: "Manages a link aggregation (LAGG) interface. Identified by its description.",
 		Attributes: map[string]schema.Attribute{
 			"id":      computedIDAttribute(),
-			"members": requiredStringListAttribute("Physical interfaces that are members of the LAGG."),
+			"members": requiredStringListAttribute("Physical interfaces that are members of the LAGG.", listvalidator.SizeAtLeast(1)),
 			"descr": schema.StringAttribute{
 				Required:    true,
 				Description: "Description (name) of the LAGG. Unique among laggs; immutable after creation.",

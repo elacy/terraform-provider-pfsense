@@ -147,11 +147,6 @@ func isDate() validator.String {
 	return stringvalidator.RegexMatches(dateRe, "must be a date in YYYY-MM-DD format")
 }
 
-// isPortNumber is the Int64 counterpart of isPort.
-func isPortNumber() validator.Int64 {
-	return int64validator.Between(1, 65535)
-}
-
 // isSubnetBits bounds an IPv4/IPv6 prefix length.
 func isSubnetBits(max int64) validator.Int64 {
 	return int64validator.Between(0, max)

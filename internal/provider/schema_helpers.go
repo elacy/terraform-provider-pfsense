@@ -1,7 +1,6 @@
 package provider
 
 import (
-	"github.com/hashicorp/terraform-plugin-framework-validators/listvalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
@@ -39,8 +38,27 @@ func requiredStringAttribute(desc string, validators ...validator.String) schema
 	return schema.StringAttribute{Required: true, Description: desc, Validators: validators}
 }
 
+// optionalStringAttribute returns an Optional string attribute. Shape
+// validators are wrapped so they also accept the empty string: this provider's
+// convention is that the pfSense API echoes "" for an Optional string it
+// considers unset, and practitioners pin `attr = ""` so the plan settles, so a
+// validator that rejects "" would make legitimate "unset" configs unwritable.
 func optionalStringAttribute(desc string, validators ...validator.String) schema.StringAttribute {
-	return schema.StringAttribute{Optional: true, Description: desc, Validators: validators}
+	return schema.StringAttribute{Optional: true, Description: desc, Validators: tolerateEmpty(validators)}
+}
+
+// tolerateEmpty wraps each string validator so it accepts "" in addition to
+// whatever it already accepts, treating the empty string as the Optional
+// attribute's "unset" sentinel.
+func tolerateEmpty(validators []validator.String) []validator.String {
+	if len(validators) == 0 {
+		return nil
+	}
+	out := make([]validator.String, 0, len(validators))
+	for _, v := range validators {
+		out = append(out, stringvalidator.Any(stringvalidator.OneOf(""), v))
+	}
+	return out
 }
 
 func optionalBoolAttribute(desc string) schema.BoolAttribute {
@@ -82,7 +100,28 @@ func parentIDAttribute(desc string) schema.StringAttribute {
 	return keyAttribute(desc)
 }
 
+// computedStringAttribute is a computed string with no plan modifier: on an
+// unknown it stays unknown and is populated by Read/Update. Use
+// constantComputedStringAttribute for system-assigned constants instead.
 func computedStringAttribute(desc string) schema.StringAttribute {
+	return schema.StringAttribute{Computed: true, Description: desc}
+}
+
+func computedIntAttribute(desc string) schema.Int64Attribute {
+	return schema.Int64Attribute{Computed: true, Description: desc}
+}
+
+func computedBoolAttribute(desc string) schema.BoolAttribute {
+	return schema.BoolAttribute{Computed: true, Description: desc}
+}
+
+// constantComputedStringAttribute is a computed attribute whose value is a
+// system-assigned constant (the API assigns it once and never changes it).
+// UseStateForUnknown keeps the prior value across plans so import/refresh
+// never surfaces a spurious unknown→known diff. Do NOT use for values derived
+// from updatable config (e.g. a public key derived from a private key): those
+// must recompute when their inputs change.
+func constantComputedStringAttribute(desc string) schema.StringAttribute {
 	return schema.StringAttribute{
 		Computed:    true,
 		Description: desc,
@@ -92,7 +131,7 @@ func computedStringAttribute(desc string) schema.StringAttribute {
 	}
 }
 
-func computedIntAttribute(desc string) schema.Int64Attribute {
+func constantComputedIntAttribute(desc string) schema.Int64Attribute {
 	return schema.Int64Attribute{
 		Computed:    true,
 		Description: desc,
@@ -102,7 +141,7 @@ func computedIntAttribute(desc string) schema.Int64Attribute {
 	}
 }
 
-func computedBoolAttribute(desc string) schema.BoolAttribute {
+func constantComputedBoolAttribute(desc string) schema.BoolAttribute {
 	return schema.BoolAttribute{
 		Computed:    true,
 		Description: desc,
@@ -149,6 +188,6 @@ func requiredStringListAttribute(desc string, validators ...validator.List) sche
 		ElementType: types.StringType,
 		Required:    true,
 		Description: desc,
-		Validators:  append([]validator.List{listvalidator.SizeAtLeast(1)}, validators...),
+		Validators:  validators,
 	}
 }

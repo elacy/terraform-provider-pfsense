@@ -134,3 +134,20 @@ func TestStringValidatorsSkipNullAndUnknown(t *testing.T) {
 		}
 	}
 }
+
+func TestTolerateEmpty(t *testing.T) {
+	v := tolerateEmpty([]validator.String{isIPAddress()})[0]
+
+	// "" is the Optional attribute's unset sentinel and must be accepted.
+	if !acceptsString(v, "") {
+		t.Errorf("tolerateEmpty(isIPAddress) rejected the empty string")
+	}
+	// A valid value still passes.
+	if !acceptsString(v, "192.168.1.1") {
+		t.Errorf("tolerateEmpty(isIPAddress) rejected a valid IP")
+	}
+	// An invalid value is still rejected.
+	if acceptsString(v, "not-an-ip") {
+		t.Errorf("tolerateEmpty(isIPAddress) accepted an invalid IP")
+	}
+}

@@ -100,7 +100,7 @@ func (r *firewallRuleResource) Schema(_ context.Context, _ resource.SchemaReques
 				Optional:    true,
 				Description: "The protocol this rule matches (tcp, udp, icmp, ...).",
 				Validators: []validator.String{
-					stringvalidator.OneOf("any", "tcp", "udp", "tcp/udp", "icmp", "esp", "ah", "gre", "igmp", "pim", "ospf", "ipv6", "carp", "pfsync"),
+					stringvalidator.OneOf(firewallProtocols...),
 				},
 			},
 			"icmptype": schema.ListAttribute{
