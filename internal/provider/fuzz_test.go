@@ -60,7 +60,7 @@ func leadingDigits(s string) string {
 }
 
 // FuzzSplitKeyN asserts splitKeyN always returns exactly n parts, and that it
-// never panics on any input string or part count.
+// never panics on any input string for part counts normalised into 1..64.
 func FuzzSplitKeyN(f *testing.F) {
 	f.Add("a|b|c", 3)
 	f.Add("a", 5)
@@ -69,8 +69,11 @@ func FuzzSplitKeyN(f *testing.F) {
 	f.Add("||||", 4)
 	f.Add("trailing|", 3)
 	f.Fuzz(func(t *testing.T, id string, n int) {
-		if n <= 0 || n > 64 {
-			t.Skip()
+		// Normalise the part count into the 1..64 range splitKeyN supports
+		// rather than discarding generated inputs wholesale.
+		n = (n%64 + 64) % 64
+		if n == 0 {
+			n = 64
 		}
 		parts := splitKeyN(id, n)
 		if len(parts) != n {
@@ -106,6 +109,12 @@ func FuzzSplitRouteKey(f *testing.F) {
 			if network+"|"+gateway != id {
 				t.Fatalf("splitRouteKey(%q) = (%q, %q); round-trip mismatch", id, network, gateway)
 			}
+			// The split must be at the LAST separator, otherwise gateway could
+			// still contain '|' and `network|gateway` import IDs would be
+			// ambiguous.
+			if strings.Contains(gateway, "|") {
+				t.Fatalf("splitRouteKey(%q) split at a non-final separator: gateway %q contains '|'", id, gateway)
+			}
 		} else {
 			if network != id || gateway != "" {
 				t.Fatalf("splitRouteKey(%q) = (%q, %q); want (%q, \"\")", id, network, gateway, id)
@@ -128,8 +137,6 @@ func FuzzDecodeObject(f *testing.F) {
 		if err == nil && obj == nil {
 			t.Fatalf("decodeObject(%q) returned nil map and nil error", raw)
 		}
-		_ = obj
-		_ = err
 	})
 }
 

@@ -484,14 +484,20 @@ func getSliceMap(obj map[string]any, key string) []map[string]any {
 	return out
 }
 
-// decodeObject unmarshals a raw JSON object into a map.
+// decodeObject unmarshals a raw JSON object into a map. It always returns a
+// non-nil map when err is nil, so callers can index the result directly.
 func decodeObject(raw json.RawMessage) (map[string]any, error) {
-	if len(raw) == 0 || string(raw) == "null" {
+	if len(raw) == 0 {
 		return map[string]any{}, nil
 	}
 	var obj map[string]any
 	if err := json.Unmarshal(raw, &obj); err != nil {
 		return nil, fmt.Errorf("decoding object: %w", err)
+	}
+	if obj == nil {
+		// JSON "null" (possibly with surrounding whitespace) unmarshals into a
+		// nil map with a nil error; normalise to an empty map.
+		return map[string]any{}, nil
 	}
 	return obj, nil
 }
