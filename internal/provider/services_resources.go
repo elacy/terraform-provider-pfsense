@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"strings"
 
 	"github.com/elacy/terraform-provider-pfsense/v2/internal/client"
 	"github.com/hashicorp/terraform-plugin-framework/attr"
@@ -482,6 +483,27 @@ func (r *cronJobResource) Read(ctx context.Context, req resource.ReadRequest, re
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() || r.client == nil {
 		return
+	}
+	// On import only the composite ID is populated (see key()); reconstruct
+	// the lookup fields from it so the job can be found. SplitN keeps the
+	// command (which may itself contain spaces) as a single trailing field.
+	if state.ID.ValueString() != "" && state.Minute.ValueString() == "" {
+		parts := strings.SplitN(state.ID.ValueString(), " ", 7)
+		if len(parts) == 7 {
+			state.Minute = types.StringValue(parts[0])
+			state.Hour = types.StringValue(parts[1])
+			state.Mday = types.StringValue(parts[2])
+			state.Month = types.StringValue(parts[3])
+			state.Wday = types.StringValue(parts[4])
+			state.Who = types.StringValue(parts[5])
+			state.Command = types.StringValue(parts[6])
+		} else {
+			resp.Diagnostics.AddError(
+				"invalid cron job import ID",
+				"expected `minute hour mday month wday who command`, got: "+state.ID.ValueString(),
+			)
+			return
+		}
 	}
 	filters := map[string]string{
 		"minute":  state.Minute.ValueString(),
