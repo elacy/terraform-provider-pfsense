@@ -94,9 +94,9 @@ func TestDhcpServerModelV0ToCurrent(t *testing.T) {
 func TestDhcpServerModelV0ToCurrentDenyUnknownFalseAndNull(t *testing.T) {
 	ctx := context.Background()
 
-	// deny_unknown=false -> "disabled". On pfsense_services_dhcp_server the
-	// `denyunknown` domain is "enabled"/"disabled", so the off state has a
-	// real spelling and is not normalised away.
+	// deny_unknown=false is the SDKv2 zero value for an unset optional bool and
+	// is indistinguishable from an explicit off, so it normalises to null and
+	// the first Read re-populates the real value.
 	cur, diags := (dhcpServerModelV0{
 		Interface:    types.StringValue("lan"),
 		DenyUnknown:  types.BoolValue(false),
@@ -105,8 +105,8 @@ func TestDhcpServerModelV0ToCurrentDenyUnknownFalseAndNull(t *testing.T) {
 	if diags.HasError() {
 		t.Fatalf("unexpected diagnostics: %s", diags)
 	}
-	if cur.DenyUnknown.ValueString() != "disabled" {
-		t.Errorf("DenyUnknown = %v, want \"disabled\" (from deny_unknown=false)", cur.DenyUnknown)
+	if !cur.DenyUnknown.IsNull() {
+		t.Errorf("DenyUnknown = %v, want null (from deny_unknown=false)", cur.DenyUnknown)
 	}
 	// max_lease_time="" -> null, not a parse error.
 	if !cur.MaxLease.IsNull() {

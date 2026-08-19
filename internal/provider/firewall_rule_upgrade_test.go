@@ -206,7 +206,8 @@ func TestRuleModelV0ToCurrentNoTCPFlags(t *testing.T) {
 		t.Errorf("TCPFlagsSet = %v, want null", cur.TCPFlagsSet)
 	}
 
-	// Empty-but-present list: tcp_flags_any=null too, with explicit empty lists.
+	// Empty-but-present list (SDKv2 always persists an unset optional TypeList
+	// as [], which decodes to a non-nil empty slice): normalised to null too.
 	prior.TCPFlag = []firewallRuleTCPFlagV0{}
 	cur, diags = prior.toCurrent(ctx)
 	if diags.HasError() {
@@ -215,11 +216,11 @@ func TestRuleModelV0ToCurrentNoTCPFlags(t *testing.T) {
 	if !cur.TCPFlagsAny.IsNull() {
 		t.Errorf("TCPFlagsAny = %v, want null for empty covered flags", cur.TCPFlagsAny)
 	}
-	if cur.TCPFlagsOutOf.IsNull() || len(cur.TCPFlagsOutOf.Elements()) != 0 {
-		t.Errorf("TCPFlagsOutOf = %v, want empty list", cur.TCPFlagsOutOf)
+	if !cur.TCPFlagsOutOf.IsNull() {
+		t.Errorf("TCPFlagsOutOf = %v, want null", cur.TCPFlagsOutOf)
 	}
-	if cur.TCPFlagsSet.IsNull() || len(cur.TCPFlagsSet.Elements()) != 0 {
-		t.Errorf("TCPFlagsSet = %v, want empty list", cur.TCPFlagsSet)
+	if !cur.TCPFlagsSet.IsNull() {
+		t.Errorf("TCPFlagsSet = %v, want null", cur.TCPFlagsSet)
 	}
 }
 

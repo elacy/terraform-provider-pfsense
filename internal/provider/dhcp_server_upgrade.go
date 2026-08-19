@@ -140,13 +140,12 @@ func (m dhcpServerModelV0) toCurrent(ctx context.Context) (dhcpServerModel, diag
 // `denyunknown` string.
 //
 // On pfsense_services_dhcp_server `denyunknown` is an unvalidated optional
-// string whose domain is "enabled" / "disabled" (unlike the identically named
-// attribute on pfsense_services_dhcp_address_pool, which is "enabled" /
-// "class"). Both states of the v0 bool therefore have a direct v1 spelling:
-// true -> "enabled", false -> "disabled". This is not normalised to null the
-// way the other optional zero values are — "disabled" is the real off value
-// here, and it is what pfSense reports back for a server that does not deny
-// unknown clients.
+// string whose domain is "enabled" / "disabled". Only true has an unambiguous
+// spelling ("enabled"); false is the SDKv2 zero value for an unset optional
+// bool and cannot be told apart from an explicit off, so it is normalised to
+// null (the attribute is Optional) and the first Read re-populates the real
+// value from the API. Mapping false to "disabled" would surface a spurious
+// "disabled" -> null diff on every migrated server that never configured it.
 func dhcpServerDenyUnknownToCurrent(v types.Bool) types.String {
 	if v.IsNull() || v.IsUnknown() {
 		return types.StringNull()
@@ -154,7 +153,7 @@ func dhcpServerDenyUnknownToCurrent(v types.Bool) types.String {
 	if v.ValueBool() {
 		return types.StringValue("enabled")
 	}
-	return types.StringValue("disabled")
+	return types.StringNull()
 }
 
 // dhcpServerDroppedAttributeWarnings reports the v0 attributes that the v1

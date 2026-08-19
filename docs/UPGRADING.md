@@ -97,7 +97,7 @@ four renamed resources run the same upgrader once the `state mv` has been done.
 | `pfsense_firewall_rule`                     | `ack_queue`→`ackqueue`, `default_queue`→`defaultqueue`, `description`→`descr`, `dn_pipe`→`dnpipe`, `pdn_pipe`→`pdnpipe`, `ip_protocol`→`ipprotocol`, `schedule`→`sched`, `state_type`→`statetype`, `icmp_type`→`icmptype`; `tcp_flag` split into `tcp_flags_set` / `tcp_flags_out_of` / `tcp_flags_any`. `id` becomes the rule description. |
 | `pfsense_interface_vlan`                    | `description` → `descr`; `if`, `tag` and `pcp` carry over unchanged; the new computed `vlanif` is populated from the old `id` (which was the generated VLAN interface name). `id` becomes `"<if>\|<tag>"`. |
 | `pfsense_network_interface` *(was `pfsense_interface`)* | `description`→`descr`, `spoof_mac`→`spoofmac`, `block_private`→`blockpriv`, `block_bogons`→`blockbogons`, `type`→`typev4` (values remapped, see section 4.4), `type_v6`→`typev6`, `ip_address`→`ipaddr`, `ip_address_v6`→`ipaddrv6`, `gateway_v6`→`gatewayv6`, `dhcp_hostname`→`dhcphostname`, `dhcp_reject_from`→`dhcprejectfrom`, `subnet_v6`→`subnetv6`, `prefix_v6_rd`→`prefix_6rd`, `gateway_6_rd`→`gateway_6rd`, `prefix_6_rd_v4_plen`→`prefix_6rd_v4plen`, `track_v6_interface`→`track6_interface`, `track_v6_prefix_id_hex`→`track6_prefix_id_hex`, `ip_v6_use_v4_iface`→`ipv6usev4iface`, `adv_dhcp_config_file_override_file`→`adv_dhcp_config_file_override_path`. `mss` and `subnet_v6` are retyped from string to number. `dhcp_cv_pt` and `dhcp_vlan_enable` have no v2 equivalent and are dropped. `id` becomes the interface key (`if`) — the v1 id was the interface's descriptive name. |
-| `pfsense_services_dhcp_server` *(was `pfsense_dhcp_server`)* | `default_lease_time`→`defaultleasetime`, `max_lease_time`→`maxleasetime` (retyped string→number), `dns_server`→`dnsserver`, `deny_unknown` (bool) →`denyunknown` (string: `true`→`"enabled"`, `false`→`"disabled"`). `id` is the interface. **`domain_search_list`, `mac_allow_list`, `mac_deny_list` and `ignore_bootp` are dropped — see the note below.** |
+| `pfsense_services_dhcp_server` *(was `pfsense_dhcp_server`)* | `default_lease_time`→`defaultleasetime`, `max_lease_time`→`maxleasetime` (retyped string→number), `dns_server`→`dnsserver`, `deny_unknown` (bool) →`denyunknown` (string: `true`→`"enabled"`, `false`→null — the zero value is ambiguous and is normalised away). `id` is the interface. **`domain_search_list`, `mac_allow_list`, `mac_deny_list` and `ignore_bootp` are dropped — see the note below.** |
 | `pfsense_services_dhcp_static_mapping` *(was `pfsense_dhcp_static_mapping`)* | `interface`→`parent_id`, `client_identifier`→`cid`, `ip_address`→`ipaddr`, `host_name`→`hostname`, `description`→`descr`, `domain_search_list`→`domainsearchlist`, `dns_servers`→`dnsserver`. `id` becomes `"<interface>\|<mac>"` (was `"<interface>.<mac>"`). |
 | `pfsense_services_dns_resolver_host_override` *(was `pfsense_unbound_host_override`)* | `dns` (an FQDN) split at the first dot into `host` + `domain`; `ip_addresses`→`ip`; `description`→`descr`; `aliases[].host_name`→`aliases[].host`, `aliases[].domain_name`→`aliases[].domain`, `aliases[].description`→`aliases[].descr`. `id` becomes `"<host>\|<domain>"` (was the FQDN). |
 
@@ -128,12 +128,10 @@ silently carrying a wrong value. A handful of attributes deliberately keep
 their zero value because it is the correct carried-over value — each one
 carries a comment in `internal/provider/*_upgrade.go` explaining why:
 
-- `pfsense_services_dhcp_server.denyunknown` — the v1 bool `false` maps to the
-  real v2 value `"disabled"`, not to null (see the field table above).
-- `pfsense_firewall_rule.tcp_flags_out_of` / `tcp_flags_set` — a present-but-empty
-  `tcp_flag` yields empty lists on purpose (rather than null), because an empty
-  list is the honest representation of "flags were configured but none were
-  set"; `tcp_flag` itself cannot be unset in SDKv2 state.
+- `pfsense_firewall_rule.tcp_flags_out_of` / `tcp_flags_set` — an unset or empty
+  `tcp_flag` is normalised to null: SDKv2 persists an unset optional TypeList as
+  `[]` (a non-nil empty slice), so nil and empty both collapse to null rather
+  than surfacing a spurious `[] -> null` diff.
 
 ### `pfsense_services_dhcp_server` — attributes not carried over
 
@@ -258,8 +256,9 @@ Set it to the real mode, and reserve `none` only for interfaces with no IPv4.
 
 `type_v6` → `typev6` needs no value translation — the v2 domain
 (`staticv6`, `dhcp6`, `slaac`, `6rd`, `track6`, `6to4`, `none`) is a superset
-of the v1 one. The only change is that an unset (`""`) v1 `type_v6` becomes the
-explicit `none`, which is what pfSense reports back for an interface with no
+of the v1 one. An unset (`""`) v1 `type_v6` is normalised to null (typev6 is
+Optional and not Computed), and the first Read re-populates what pfSense reports
+back for an interface with no
 IPv6 configuration.
 
 Check which interfaces are affected before upgrading:

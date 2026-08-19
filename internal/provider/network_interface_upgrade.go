@@ -181,7 +181,7 @@ func (m networkInterfaceModelV0) toCurrent(ctx context.Context) (networkInterfac
 	// v0 and Required in v2, so an unset v0 value (SDKv2 zero value) becomes
 	// null. A null in a Required attribute fails the next plan loudly rather
 	// than silently carrying a semantically wrong 0 (/0 subnet). See the
-	// "optional in v0, required in v2" note in upgrade-analysis.md.
+	// "optional in v0, required in v2" note in docs/UPGRADING.md.
 	cur.Subnet = zeroToNull(m.Subnet)
 	cur.Gateway = emptyToNull(m.Gateway)
 	cur.Dhcphostname = emptyToNull(m.DhcpHostname)
@@ -305,16 +305,16 @@ func networkInterfaceTypev4ToCurrent(v types.String, diags *diag.Diagnostics) ty
 //
 // The v1 OneOf ("staticv6", "dhcp6", "slaac", "6rd", "track6", "6to4",
 // "none") is a superset of the v0 StringInSlice, so every configured value
-// carries over unchanged. Only the SDKv2 "" zero value needs mapping: `typev6`
-// is Optional, but "none" (not null) is its explicit "no IPv6" value and is
-// what pfSense reports back for such an interface, so "" becomes "none" to
-// match what the first Read would write.
+// carries over unchanged. The SDKv2 "" zero value for an unset optional string
+// is normalised to null (typev6 is Optional and not Computed, so synthesising
+// "none" would surface a spurious "none" -> null diff on the first plan); the
+// first Read then writes the real value.
 func networkInterfaceTypev6ToCurrent(v types.String) types.String {
 	if v.IsUnknown() {
 		return v
 	}
 	if v.IsNull() || v.ValueString() == "" {
-		return types.StringValue("none")
+		return types.StringNull()
 	}
 	return v
 }

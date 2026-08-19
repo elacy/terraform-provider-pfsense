@@ -252,7 +252,7 @@ func TestNetworkInterfaceModelV0ToCurrentTypeMapping(t *testing.T) {
 	}{
 		{name: "staticv4", typev4: "staticv4", typev6: "staticv6", wantTypev4: "static", wantTypev6: "staticv6"},
 		{name: "dhcp", typev4: "dhcp", typev6: "dhcp6", wantTypev4: "dhcp", wantTypev6: "dhcp6"},
-		{name: "unset", typev4: "", typev6: "", wantTypev4: "none", wantTypev6: "none"},
+		{name: "unset", typev4: "", typev6: "", wantTypev4: "none", wantTypev6: ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			prior := networkInterfaceModelV0{
@@ -278,6 +278,9 @@ func TestNetworkInterfaceModelV0ToCurrentTypeMapping(t *testing.T) {
 			}
 			if cur.Typev6.ValueString() != tc.wantTypev6 {
 				t.Errorf("Typev6 = %q, want %q (from type_v6 = %q)", cur.Typev6.ValueString(), tc.wantTypev6, tc.typev6)
+			}
+			if tc.typev6 == "" && !cur.Typev6.IsNull() {
+				t.Errorf("Typev6 = %v, want null for unset type_v6", cur.Typev6)
 			}
 		})
 	}

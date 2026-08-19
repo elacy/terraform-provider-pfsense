@@ -109,7 +109,7 @@ func falseToNull(v types.Bool) types.Bool {
 // to attributes that are Required in v2 but Optional in v0 (e.g. the network
 // interface `subnet`): a null there fails the next plan loudly instead of
 // silently carrying a semantically wrong zero value, and the break is
-// documented in upgrade-analysis.md. Do not use it where `0` is a meaningful
+// documented in docs/UPGRADING.md. Do not use it where `0` is a meaningful
 // configured value that the API does not report back.
 func zeroToNull(v types.Int64) types.Int64 {
 	if v.IsUnknown() {

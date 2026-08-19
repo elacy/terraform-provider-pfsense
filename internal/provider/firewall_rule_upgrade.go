@@ -234,14 +234,12 @@ func (m firewallRuleModelV0) toCurrent(ctx context.Context) (firewallRuleModel, 
 	// TCPFlagsAny is null when coveredFlags is empty (the unset default is
 	// "any") and false when specific flags are selected.
 	//
-	// Unlike every other carried-over list, tcp_flags_out_of/tcp_flags_set are
-	// deliberately NOT normalised with emptyListToNull: a present-but-empty
-	// tcp_flag yields empty lists (asserted by
-	// TestRuleModelV0ToCurrentNoTCPFlags), which is the honest representation
-	// of "flags were configured but none were set". SDKv2's tcp_flag list
-	// cannot be unset — it defaults to an empty list — so there is no spurious
-	// [] → null diff to normalise away here.
-	if m.TCPFlag == nil {
+	// SDKv2 persists an unset optional TypeList as [], which req.State.Get
+	// decodes into a non-nil empty slice, so a v1 rule that never used tcp_flag
+	// arrives here with an empty (not nil) TCPFlag. Normalise both nil and empty
+	// to null so the Optional tcp_flags_out_of/tcp_flags_set attributes plan
+	// null instead of surfacing a spurious [] -> null diff on the first plan.
+	if len(m.TCPFlag) == 0 {
 		// "any" is the unset default for tcp_flags_any (Optional, not
 		// Computed), so leaving it null avoids a spurious true->null diff on
 		// the next plan.
