@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"regexp"
 
 	"github.com/elacy/terraform-provider-pfsense/v2/internal/client"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
@@ -1026,7 +1027,7 @@ func (r *freeradiusUserResource) Schema(_ context.Context, _ resource.SchemaRequ
 					stringplanmodifier.RequiresReplace(),
 				},
 			},
-			"password": requiredStringAttribute("The password for this username."),
+			"password": requiredSensitiveStringAttribute("The password for this username."),
 			"password_encryption": enumAttribute(
 				"The encryption method for the password.",
 				"Cleartext-Password", "MD5-Password", "MD5-Password-hashed", "NT-Password-hashed",
@@ -1038,8 +1039,15 @@ func (r *freeradiusUserResource) Schema(_ context.Context, _ resource.SchemaRequ
 				"The authentication method for the Mobile One-Time Password (MOTP).",
 				"motp", "googleauth",
 			),
-			"motp_secret": requiredStringAttribute("The secret for the Mobile One-Time Password (MOTP)."),
-			"motp_pin":    requiredStringAttribute("The PIN for the Mobile One-Time Password (MOTP). It must be exactly 4 digits."),
+			"motp_secret": requiredSensitiveStringAttribute("The secret for the Mobile One-Time Password (MOTP)."),
+			"motp_pin": schema.StringAttribute{
+				Required:    true,
+				Sensitive:   true,
+				Description: "The PIN for the Mobile One-Time Password (MOTP). It must be exactly 4 digits.",
+				Validators: []validator.String{
+					stringvalidator.RegexMatches(regexp.MustCompile(`^\d{4}$`), "must be exactly 4 digits"),
+				},
+			},
 			"motp_offset": optionalIntAttribute("The timezone offset for this user."),
 			"description": optionalStringAttribute("A description for this entry."),
 			"framed_ip_address": optionalStringAttribute(

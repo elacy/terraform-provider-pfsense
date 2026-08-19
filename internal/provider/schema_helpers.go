@@ -101,6 +101,12 @@ func sensitiveStringAttribute(desc string) schema.StringAttribute {
 	return schema.StringAttribute{Optional: true, Sensitive: true, Description: desc}
 }
 
+// requiredSensitiveStringAttribute is a required attribute holding a
+// credential; its value is redacted from plan output and logs.
+func requiredSensitiveStringAttribute(desc string) schema.StringAttribute {
+	return schema.StringAttribute{Required: true, Sensitive: true, Description: desc}
+}
+
 func requiredEnumAttribute(desc string, choices ...string) schema.StringAttribute {
 	return schema.StringAttribute{
 		Required:    true,
