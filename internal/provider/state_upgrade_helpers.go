@@ -5,7 +5,6 @@ import (
 	"strconv"
 
 	"github.com/hashicorp/terraform-plugin-framework/diag"
-	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-go/tfprotov6"
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
@@ -156,8 +155,12 @@ func upgradeStringToInt64(v types.String, attrName, resourceType string, diags *
 	}
 	n, err := strconv.ParseInt(v.ValueString(), 10, 64)
 	if err != nil {
-		diags.AddAttributeError(
-			path.Root(attrName),
+		// The v0 attribute name is referenced in the message text rather than
+		// anchored via path.Root: several call sites pass a v0 name that has no
+		// v1 counterpart (e.g. "max_lease_time" -> "maxleasetime", "subnet_v6"
+		// -> "subnetv6"), and anchoring it would surface an error pointing at
+		// a non-existent attribute.
+		diags.AddError(
 			"Invalid Value During State Upgrade",
 			"An error was encountered when upgrading "+resourceType+" state "+
 				"from schema version 0 to version 1: the value of attribute "+

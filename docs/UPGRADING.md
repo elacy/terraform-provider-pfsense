@@ -132,9 +132,10 @@ comment in `internal/provider/*_upgrade.go` explaining why:
   description, missing descriptions are padded with `""` to stay index-aligned
   with `address`. When every description is empty the whole list is still
   normalised to null (see `firewall_alias_upgrade.go`).
-- `pfsense_network_interface.type` — an unset v0 `type` is synthesised as
-  `"none"` rather than null, because that is the literal value the pfSense API
-  reports for an unconfigured interface (see `network_interface_upgrade.go`).
+- `pfsense_network_interface.typev4` — an unset v0 `type` is synthesised as
+  `"none"` rather than null because `typev4` is required and can never be
+  null; `"none"` is an honest "unknown", not a retained zero value (see
+  section 4.4 and `network_interface_upgrade.go`).
 
 ### `pfsense_services_dhcp_server` — attributes not carried over
 

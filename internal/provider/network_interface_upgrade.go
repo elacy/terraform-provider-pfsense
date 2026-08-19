@@ -273,13 +273,16 @@ func networkInterfaceDroppedAttributeWarnings(m networkInterfaceModelV0) diag.Di
 // through the zero-value normaliser. `ipaddr` and `subnet` become null because
 // they have no value that honestly means "unset": null fails the next plan
 // loudly and forces the practitioner to supply a real value. `typev4`, by
-// contrast, has a dedicated "none" value that pfSense itself reports for an
-// interface with no IPv4 addressing, so synthesising "none" for the unset ""
-// is both semantically correct and matches what the first Read writes back —
-// the migration self-heals instead of failing loudly. Anything outside the v0
-// domain is reported as a warning (as with the v0-only ip_protocol = "inet46"
-// in firewall_rule_upgrade.go) and mapped to "none", because carrying it over
-// verbatim would only fail the OneOf validator on the next plan.
+// contrast, is Required and can never be null, so the unset "" has to map to a
+// valid value: it becomes "none" as an honest "unknown". This is NOT a
+// self-healing migration — "none" is the value the upgrader writes because it
+// cannot know the real addressing mode, and the first Read may report "static"
+// or "dhcp" for an interface that does have IPv4 configured, so the
+// practitioner must set `typev4` to the real mode (see docs/UPGRADING.md
+// section 4.4). Anything outside the v0 domain is reported as a warning (as
+// with the v0-only ip_protocol = "inet46" in firewall_rule_upgrade.go) and
+// mapped to "none", because carrying it over verbatim would only fail the
+// OneOf validator on the next plan.
 func networkInterfaceTypev4ToCurrent(v types.String, diags *diag.Diagnostics) types.String {
 	switch typev4 := v.ValueString(); {
 	case v.IsNull() || v.IsUnknown() || typev4 == "":

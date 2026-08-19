@@ -260,7 +260,16 @@ func (m firewallRuleModelV0) toCurrent(ctx context.Context) (firewallRuleModel, 
 	}
 
 	cur.TCPFlagsOutOf = types.ListValueMust(types.StringType, outOf)
-	cur.TCPFlagsSet = types.ListValueMust(types.StringType, set)
+	if len(set) == 0 {
+		// Every flag was present = false (the SDKv2 zero value for an unset
+		// optional bool), which the old provider treated as "flag listed but
+		// not asserted". Normalise the empty set to null so the Optional
+		// tcp_flags_set attribute plans null instead of surfacing a spurious
+		// [] -> null diff on the first plan.
+		cur.TCPFlagsSet = types.ListNull(types.StringType)
+	} else {
+		cur.TCPFlagsSet = types.ListValueMust(types.StringType, set)
+	}
 	// "any" is only meaningful when no specific flag is present. toCurrent
 	// returns early above when len(m.TCPFlag) == 0, so len(outOf) > 0 here
 	// and "any" is always false at this point.

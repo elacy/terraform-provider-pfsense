@@ -224,6 +224,50 @@ func TestRuleModelV0ToCurrentNoTCPFlags(t *testing.T) {
 	}
 }
 
+func TestRuleModelV0ToCurrentAllFlagsNotPresent(t *testing.T) {
+	ctx := context.Background()
+
+	// A rule that listed tcp_flag entries with every present = false (the
+	// SDKv2 zero value) must migrate to tcp_flags_set = null, not an
+	// empty-but-non-null list, so the Optional attribute plans null instead
+	// of surfacing a spurious [] -> null diff. out_of keeps every listed flag.
+	prior := firewallRuleModelV0{
+		Type:        types.StringValue("pass"),
+		Interface:   types.ListValueMust(types.StringType, []attr.Value{types.StringValue("wan")}),
+		Description: types.StringValue("flags not asserted"),
+		TCPFlag: []firewallRuleTCPFlagV0{
+			{Flag: types.StringValue("syn"), Present: types.BoolValue(false)},
+			{Flag: types.StringValue("ack"), Present: types.BoolValue(false)},
+		},
+	}
+
+	cur, diags := prior.toCurrent(ctx)
+	if diags.HasError() {
+		t.Fatalf("unexpected diagnostics: %s", diags)
+	}
+
+	if !cur.TCPFlagsSet.IsNull() {
+		t.Errorf("TCPFlagsSet = %v, want null when every flag present=false", cur.TCPFlagsSet)
+	}
+	if cur.TCPFlagsAny.ValueBool() != false {
+		t.Errorf("TCPFlagsAny = %v, want false for non-empty covered list", cur.TCPFlagsAny.ValueBool())
+	}
+
+	var outOf []string
+	if diags := cur.TCPFlagsOutOf.ElementsAs(ctx, &outOf, false); diags.HasError() {
+		t.Fatalf("decoding tcp_flags_out_of list: %s", diags)
+	}
+	want := []string{"syn", "ack"}
+	if len(outOf) != len(want) {
+		t.Fatalf("TCPFlagsOutOf = %v, want %v", outOf, want)
+	}
+	for i := range want {
+		if outOf[i] != want[i] {
+			t.Errorf("TCPFlagsOutOf[%d] = %q, want %q", i, outOf[i], want[i])
+		}
+	}
+}
+
 func TestRuleModelV0ToCurrentZeroValueNormalisation(t *testing.T) {
 	ctx := context.Background()
 

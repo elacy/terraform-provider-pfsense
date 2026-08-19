@@ -86,19 +86,16 @@ func (r *firewallAliasResource) upgradeStateV0To1(ctx context.Context, req resou
 		return
 	}
 
-	cur.ID = firewallAliasPriorID(req, prior)
+	cur.ID = firewallAliasPriorID(prior)
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &cur)...)
 }
 
-// firewallAliasPriorID returns the v0 resource id read from the raw prior state,
-// falling back to the natural key (`name`) when it is absent. In the v1
-// provider the resource id is the alias name, matching the old id
-// (d.SetId(name)), so the id carries over unchanged.
-func firewallAliasPriorID(req resource.UpgradeStateRequest, prior firewallAliasModelV0) types.String {
-	if id := priorResourceID(req.RawState); id != "" {
-		return types.StringValue(id)
-	}
+// firewallAliasPriorID derives the v1 resource id from the natural key
+// (`name`), which v0 validated as Required. The v1 id is the alias name
+// (matching the old d.SetId(name)), so deriving it keeps state in the v1
+// `id == name` contract rather than carrying the raw v0 id over.
+func firewallAliasPriorID(prior firewallAliasModelV0) types.String {
 	return prior.Name
 }
 
