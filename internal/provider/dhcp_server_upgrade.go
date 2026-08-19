@@ -17,8 +17,8 @@ import (
 // dhcpServerModelV0 is the schema-version-0 (SDKv2-era) state model for
 // pfsense_dhcp_server. The tfsdk tags use the OLD attribute names so that
 // req.State.Get decodes the prior state verbatim. The implicit SDKv2 `id`
-// attribute is intentionally absent: it is carried over from req.RawState
-// instead (see dhcpServerPriorID).
+// attribute is intentionally absent: the v1 id is derived from the natural key
+// `interface` instead (see dhcpServerPriorID).
 type dhcpServerModelV0 struct {
 	DefaultLeaseTime types.Int64  `tfsdk:"default_lease_time"`
 	DenyUnknown      types.Bool   `tfsdk:"deny_unknown"`
@@ -42,8 +42,9 @@ var _ resource.ResourceWithUpgradeState = (*dhcpServerResource)(nil)
 // provider v1 properties map) translated to framework attributes. It mirrors
 // the v0 state exactly: same attribute names, same required/optional flags,
 // SDKv2 types mapped per TYPE TRANSLATION rules (including max_lease_time as
-// a String, since that is how it was stored in v0). The implicit SDKv2 `id`
-// attribute is deliberately excluded (it is carried over from RawState).
+// as a String, since that is how it was stored in v0). The implicit SDKv2 `id`
+// attribute is deliberately excluded (the v1 id is derived from the natural
+// key `interface`).
 var dhcpServerPriorSchemaV0 = schema.Schema{
 	Attributes: map[string]schema.Attribute{
 		"default_lease_time": schema.Int64Attribute{Optional: true},

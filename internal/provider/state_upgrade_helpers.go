@@ -109,7 +109,11 @@ func falseToNull(v types.Bool) types.Bool {
 // interface `subnet`): a null there fails the next plan loudly instead of
 // silently carrying a semantically wrong zero value, and the break is
 // documented in docs/UPGRADING.md. Do not use it where `0` is a meaningful
-// configured value that the API does not report back.
+// configured value that the API does not report back. (`pcp` on
+// pfsense_interface_vlan is an accepted exception: `0` is a valid 802.1p
+// priority, but the attribute is Optional-not-Computed so an explicit `0`
+// still plans against the API's `0`; the trade-off is documented at the call
+// site rather than here.)
 func zeroToNull(v types.Int64) types.Int64 {
 	if v.IsUnknown() {
 		return v

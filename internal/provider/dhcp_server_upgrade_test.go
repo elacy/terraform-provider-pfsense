@@ -196,9 +196,10 @@ func TestDhcpServerUpgradeStateV0To1(t *testing.T) {
 		t.Fatalf("setting prior state: %s", diags)
 	}
 
-	// The old SDKv2 state always carries the implicit id attribute; for
-	// pfsense_dhcp_server the id equals the interface value.
-	rawJSON, err := json.Marshal(map[string]any{"id": "lan"})
+	// The old SDKv2 state always carries the implicit id attribute. Give it a
+	// value that contradicts the natural key so the assertion proves the v1 id
+	// is derived from `interface`, not read from the raw id.
+	rawJSON, err := json.Marshal(map[string]any{"id": "stale_id"})
 	if err != nil {
 		t.Fatalf("marshaling raw state: %s", err)
 	}
@@ -221,8 +222,10 @@ func TestDhcpServerUpgradeStateV0To1(t *testing.T) {
 		t.Fatalf("reading upgraded state: %s", diags)
 	}
 
+	// The v1 id is the natural key (`interface`), never the raw id (which the
+	// fixture set to "stale_id" to prove the upgrader ignores it).
 	if got.ID.ValueString() != "lan" {
-		t.Errorf("ID = %q, want prior id %q", got.ID.ValueString(), "lan")
+		t.Errorf("ID = %q, want natural key %q", got.ID.ValueString(), "lan")
 	}
 	if got.Interface.ValueString() != "lan" {
 		t.Errorf("Interface = %q, want lan", got.Interface.ValueString())

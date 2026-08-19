@@ -156,9 +156,10 @@ func TestAliasUpgradeStateV0To1(t *testing.T) {
 		t.Fatalf("setting prior state: %s", diags)
 	}
 
-	// The old SDKv2 state always carries the implicit id attribute; for
-	// pfsense_firewall_alias that was the alias name (d.SetId(name)).
-	rawJSON, err := json.Marshal(map[string]any{"id": "test_alias"})
+	// The old SDKv2 state always carries the implicit id attribute. Give it a
+	// value that contradicts the natural key so the assertion proves the v1 id
+	// is derived from `name`, not read from the raw id.
+	rawJSON, err := json.Marshal(map[string]any{"id": "stale_id"})
 	if err != nil {
 		t.Fatalf("marshaling raw state: %s", err)
 	}
@@ -181,9 +182,10 @@ func TestAliasUpgradeStateV0To1(t *testing.T) {
 		t.Fatalf("reading upgraded state: %s", diags)
 	}
 
-	// Prior id must be carried over verbatim.
+	// The v1 id is the natural key (`name`), never the raw id (which the
+	// fixture set to "stale_id" to prove the upgrader ignores it).
 	if got.ID.ValueString() != "test_alias" {
-		t.Errorf("ID = %q, want prior id %q", got.ID.ValueString(), "test_alias")
+		t.Errorf("ID = %q, want natural key %q", got.ID.ValueString(), "test_alias")
 	}
 	if got.Name.ValueString() != "test_alias" {
 		t.Errorf("Name = %q, want test_alias", got.Name.ValueString())

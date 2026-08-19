@@ -17,8 +17,8 @@ import (
 // dhcpStaticMappingModelV0 is the schema-version-0 state shape of the old
 // SDKv2 resource pfsense_dhcp_static_mapping (git ref origin/v1). The tfsdk
 // tags use the OLD attribute names so req.State.Get can decode prior state
-// directly. The implicit SDKv2 `id` attribute is intentionally absent: it is
-// read from req.RawState instead (see upgradeStateV0To1).
+// directly. The implicit SDKv2 `id` attribute is intentionally absent: the v1
+// id is rebuilt from the natural key (`interface` + `mac`) in upgradeStateV0To1.
 type dhcpStaticMappingModelV0 struct {
 	Interface           types.String `tfsdk:"interface"`
 	MAC                 types.String `tfsdk:"mac"`

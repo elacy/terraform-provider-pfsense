@@ -25,8 +25,8 @@ type firewallAliasTargetV0 struct {
 // firewallAliasModelV0 is the schema-version-0 (SDKv2-era) state model for
 // pfsense_firewall_alias. The tfsdk tags use the OLD attribute names so that
 // req.State.Get decodes the prior state verbatim. The implicit SDKv2 `id`
-// attribute is intentionally absent: it is carried over from req.RawState
-// instead (see upgradeStateV0To1).
+// attribute is intentionally absent: the v1 id is derived from the natural key
+// `name` instead (see firewallAliasPriorID).
 type firewallAliasModelV0 struct {
 	Name        types.String            `tfsdk:"name"`
 	Type        types.String            `tfsdk:"type"`
@@ -42,7 +42,7 @@ var _ resource.ResourceWithUpgradeState = (*firewallAliasResource)(nil)
 // SDKv2 types mapped per TYPE TRANSLATION rules (the old `target` TypeList of
 // nested Resource becomes a ListAttribute whose ElementType is an object type
 // with the translated nested fields). The implicit SDKv2 `id` attribute is
-// deliberately excluded (it is carried over from RawState).
+// deliberately excluded (the v1 id is derived from the natural key `name`).
 var firewallAliasPriorSchemaV0 = schema.Schema{
 	Attributes: map[string]schema.Attribute{
 		"name":        schema.StringAttribute{Required: true},

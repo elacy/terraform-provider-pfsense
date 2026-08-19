@@ -124,9 +124,9 @@ the pfSense API, so state self-heals on the first refresh.
 Normalisation is applied to every attribute that was **optional in v0** — even
 when it became required in v2 (see section 4.5): a zero value there is still
 "unset" data, and mapping it to null fails the next plan loudly rather than
-silently carrying a wrong value. Two attributes deliberately keep a non-null
-zero value because that is the correct carried-over value; each carries a
-comment in `internal/provider/*_upgrade.go` explaining why:
+silently carrying a wrong value. One attribute deliberately keeps a non-null
+zero value because that is the correct carried-over value; each exception
+carries a comment in `internal/provider/*_upgrade.go` explaining why:
 
 - `pfsense_firewall_alias.detail` — when at least one target has a non-empty
   description, missing descriptions are padded with `""` to stay index-aligned
