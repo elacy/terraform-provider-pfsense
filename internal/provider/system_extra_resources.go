@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/elacy/terraform-provider-pfsense/v2/internal/client"
+	"github.com/hashicorp/terraform-plugin-framework-validators/int64validator"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -693,10 +694,10 @@ func (r *userAuthServerResource) Schema(_ context.Context, _ resource.SchemaRequ
 			"refid":                      computedStringAttribute("The unique reference ID for this authentication server, assigned by the system."),
 			"type":                       requiredEnumAttribute("The type of this authentication server.", "ldap", "radius"),
 			"name":                       keyAttribute("The descriptive name for this authentication server. Unique; immutable after creation."),
-			"host":                       requiredStringAttribute("The remote IP address or hostname of the authentication server."),
-			"ldap_port":                  optionalStringAttribute("The LDAP port to connect to on this authentication server (`type` must be `ldap`)."),
+			"host":                       requiredStringAttribute("The remote IP address or hostname of the authentication server.", isIPAddressOrHostname()),
+			"ldap_port":                  optionalStringAttribute("The LDAP port to connect to on this authentication server (`type` must be `ldap`).", isPort()),
 			"ldap_urltype":               enumAttribute("The encryption mode used when connecting to this LDAP server.", "Standard TCP", "STARTTLS Encrypt", "SSL/TLS Encrypted"),
-			"ldap_protver":               optionalIntAttribute("The LDAP protocol version to use (2 or 3)."),
+			"ldap_protver":               optionalIntAttribute("The LDAP protocol version to use (2 or 3).", int64validator.OneOf(2, 3)),
 			"ldap_timeout":               optionalIntAttribute("The timeout (in seconds) for connections to the LDAP server."),
 			"ldap_caref":                 optionalStringAttribute("The certificate authority used to validate the LDAP server certificate."),
 			"ldap_scope":                 enumAttribute("The LDAP search scope: `one` for a single level or `subtree` for the entire subtree.", "one", "subtree"),

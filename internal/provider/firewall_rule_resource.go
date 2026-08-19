@@ -90,11 +90,7 @@ func (r *firewallRuleResource) Schema(_ context.Context, _ resource.SchemaReques
 				Description: "The rule action: pass, block or reject.",
 				Validators:  []validator.String{stringvalidator.OneOf("pass", "block", "reject")},
 			},
-			"interface": schema.ListAttribute{
-				ElementType: types.StringType,
-				Required:    true,
-				Description: "The interface(s) this rule applies to (e.g. `lan`, `wan`).",
-			},
+			"interface": requiredStringListAttribute("The interface(s) this rule applies to (e.g. `lan`, `wan`)."),
 			"ipprotocol": schema.StringAttribute{
 				Required:    true,
 				Description: "The address family: inet or inet6.",
@@ -103,6 +99,9 @@ func (r *firewallRuleResource) Schema(_ context.Context, _ resource.SchemaReques
 			"protocol": schema.StringAttribute{
 				Optional:    true,
 				Description: "The protocol this rule matches (tcp, udp, icmp, ...).",
+				Validators: []validator.String{
+					stringvalidator.OneOf("any", "tcp", "udp", "tcp/udp", "icmp", "esp", "ah", "gre", "igmp", "pim", "ospf", "ipv6", "carp", "pfsync"),
+				},
 			},
 			"icmptype": schema.ListAttribute{
 				ElementType: types.StringType,

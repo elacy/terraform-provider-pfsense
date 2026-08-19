@@ -5,6 +5,7 @@ import (
 	"regexp"
 
 	"github.com/elacy/terraform-provider-pfsense/v2/internal/client"
+	"github.com/hashicorp/terraform-plugin-framework-validators/listvalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/path"
@@ -65,6 +66,7 @@ func (r *bindAccessListResource) Schema(_ context.Context, _ resource.SchemaRequ
 			"entries": schema.ListNestedAttribute{
 				Required:    true,
 				Description: "The network entries for this access list.",
+				Validators:  []validator.List{listvalidator.SizeAtLeast(1)},
 				NestedObject: schema.NestedAttributeObject{
 					Attributes: map[string]schema.Attribute{
 						"value": schema.StringAttribute{
@@ -449,11 +451,7 @@ func (r *bindZoneResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 			"slaveip": optionalStringAttribute(
 				"The IP address of the slave server for this BIND zone.",
 			),
-			"forwarders": schema.ListAttribute{
-				ElementType: types.StringType,
-				Required:    true,
-				Description: "The forwarders for this BIND zone.",
-			},
+			"forwarders": requiredStringListAttribute("The forwarders for this BIND zone."),
 			"ttl": optionalIntAttribute(
 				"The default TTL interval (in seconds) for records within this BIND zone.",
 			),
@@ -742,13 +740,14 @@ func (r *freeradiusMACResource) Schema(_ context.Context, _ resource.SchemaReque
 			"mac": schema.StringAttribute{
 				Required:    true,
 				Description: "The MAC address of the entry. May be delimited with '-' or ':' (e.g. 'aa:bb:cc:dd:ee:ff').",
+				Validators:  []validator.String{isMAC()},
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
 				},
 			},
 			"description":       optionalStringAttribute("A description for this entry."),
-			"framed_ip_address": optionalStringAttribute("Framed-IP-Address MUST be supported by NAS."),
-			"framed_ip_netmask": optionalStringAttribute("Framed-IP-Netmask MUST be supported by NAS."),
+			"framed_ip_address": optionalStringAttribute("Framed-IP-Address MUST be supported by NAS.", isIPAddress()),
+			"framed_ip_netmask": optionalStringAttribute("Framed-IP-Netmask MUST be supported by NAS.", isIPAddress()),
 			"framed_route":      optionalStringAttribute("Framed-Route must be supported by NAS."),
 			"framed_ipv6_address": optionalStringAttribute(
 				"Framed IPv6 address or prefix (e.g. 2001:db8:abab::5 or 2001:db8:abab::/64).",

@@ -85,7 +85,7 @@ func (r *firewallNATPortForwardResource) Schema(_ context.Context, _ resource.Sc
 				},
 			},
 			"source":      requiredStringAttribute("The source address this port forward rule applies to."),
-			"source_port": optionalStringAttribute("The source port this port forward rule applies to."),
+			"source_port": optionalStringAttribute("The source port this port forward rule applies to.", isPortOrRange()),
 			"destination": schema.StringAttribute{
 				Required:    true,
 				Description: "The destination address this port forward rule applies to.",
@@ -93,7 +93,7 @@ func (r *firewallNATPortForwardResource) Schema(_ context.Context, _ resource.Sc
 					stringplanmodifier.RequiresReplace(),
 				},
 			},
-			"destination_port": optionalStringAttribute("The destination port this port forward rule applies to."),
+			"destination_port": optionalStringAttribute("The destination port this port forward rule applies to.", isPortOrRange()),
 			"target": schema.StringAttribute{
 				Required:    true,
 				Description: "The IP address or alias of the internal host to forward matching traffic to.",
@@ -578,7 +578,7 @@ func (r *firewallNATOutboundResource) Schema(_ context.Context, _ resource.Schem
 					stringplanmodifier.RequiresReplace(),
 				},
 			},
-			"source_port": optionalStringAttribute("The source port this rule should match."),
+			"source_port": optionalStringAttribute("The source port this rule should match.", isPortOrRange()),
 			"destination": schema.StringAttribute{
 				Required:    true,
 				Description: "The destination network this rule should match.",
@@ -586,7 +586,7 @@ func (r *firewallNATOutboundResource) Schema(_ context.Context, _ resource.Schem
 					stringplanmodifier.RequiresReplace(),
 				},
 			},
-			"destination_port": optionalStringAttribute("The destination port this rule should match."),
+			"destination_port": optionalStringAttribute("The destination port this rule should match.", isPortOrRange()),
 			"target": schema.StringAttribute{
 				Required:    true,
 				Description: "The target network traffic matching this rule should be translated to.",

@@ -1,8 +1,11 @@
 package provider
 
 import (
+	"github.com/hashicorp/terraform-plugin-framework-validators/listvalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
@@ -32,20 +35,20 @@ func requiredNameAttribute() schema.StringAttribute {
 	}
 }
 
-func requiredStringAttribute(desc string) schema.StringAttribute {
-	return schema.StringAttribute{Required: true, Description: desc}
+func requiredStringAttribute(desc string, validators ...validator.String) schema.StringAttribute {
+	return schema.StringAttribute{Required: true, Description: desc, Validators: validators}
 }
 
-func optionalStringAttribute(desc string) schema.StringAttribute {
-	return schema.StringAttribute{Optional: true, Description: desc}
+func optionalStringAttribute(desc string, validators ...validator.String) schema.StringAttribute {
+	return schema.StringAttribute{Optional: true, Description: desc, Validators: validators}
 }
 
 func optionalBoolAttribute(desc string) schema.BoolAttribute {
 	return schema.BoolAttribute{Optional: true, Description: desc}
 }
 
-func optionalIntAttribute(desc string) schema.Int64Attribute {
-	return schema.Int64Attribute{Optional: true, Description: desc}
+func optionalIntAttribute(desc string, validators ...validator.Int64) schema.Int64Attribute {
+	return schema.Int64Attribute{Optional: true, Description: desc, Validators: validators}
 }
 
 func enumAttribute(desc string, choices ...string) schema.StringAttribute {
@@ -80,19 +83,37 @@ func parentIDAttribute(desc string) schema.StringAttribute {
 }
 
 func computedStringAttribute(desc string) schema.StringAttribute {
-	return schema.StringAttribute{Computed: true, Description: desc}
+	return schema.StringAttribute{
+		Computed:    true,
+		Description: desc,
+		PlanModifiers: []planmodifier.String{
+			stringplanmodifier.UseStateForUnknown(),
+		},
+	}
 }
 
 func computedIntAttribute(desc string) schema.Int64Attribute {
-	return schema.Int64Attribute{Computed: true, Description: desc}
+	return schema.Int64Attribute{
+		Computed:    true,
+		Description: desc,
+		PlanModifiers: []planmodifier.Int64{
+			int64planmodifier.UseStateForUnknown(),
+		},
+	}
 }
 
 func computedBoolAttribute(desc string) schema.BoolAttribute {
-	return schema.BoolAttribute{Computed: true, Description: desc}
+	return schema.BoolAttribute{
+		Computed:    true,
+		Description: desc,
+		PlanModifiers: []planmodifier.Bool{
+			boolplanmodifier.UseStateForUnknown(),
+		},
+	}
 }
 
-func requiredIntAttribute(desc string) schema.Int64Attribute {
-	return schema.Int64Attribute{Required: true, Description: desc}
+func requiredIntAttribute(desc string, validators ...validator.Int64) schema.Int64Attribute {
+	return schema.Int64Attribute{Required: true, Description: desc, Validators: validators}
 }
 
 // sensitiveStringAttribute is an optional attribute holding a credential; its
@@ -115,14 +136,19 @@ func requiredEnumAttribute(desc string, choices ...string) schema.StringAttribut
 	}
 }
 
-func optionalStringListAttribute(desc string) schema.ListAttribute {
-	return schema.ListAttribute{ElementType: types.StringType, Optional: true, Description: desc}
+func optionalStringListAttribute(desc string, validators ...validator.List) schema.ListAttribute {
+	return schema.ListAttribute{ElementType: types.StringType, Optional: true, Description: desc, Validators: validators}
 }
 
 func optionalIntListAttribute(desc string) schema.ListAttribute {
 	return schema.ListAttribute{ElementType: types.Int64Type, Optional: true, Description: desc}
 }
 
-func requiredStringListAttribute(desc string) schema.ListAttribute {
-	return schema.ListAttribute{ElementType: types.StringType, Required: true, Description: desc}
+func requiredStringListAttribute(desc string, validators ...validator.List) schema.ListAttribute {
+	return schema.ListAttribute{
+		ElementType: types.StringType,
+		Required:    true,
+		Description: desc,
+		Validators:  append([]validator.List{listvalidator.SizeAtLeast(1)}, validators...),
+	}
 }

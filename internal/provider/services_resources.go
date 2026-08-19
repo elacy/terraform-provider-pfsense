@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/elacy/terraform-provider-pfsense/v2/internal/client"
+	"github.com/hashicorp/terraform-plugin-framework-validators/listvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -67,25 +68,25 @@ func (r *dhcpServerResource) Schema(_ context.Context, _ resource.SchemaRequest,
 			"id":               computedIDAttribute(),
 			"interface":        requiredNameAttribute(),
 			"enable":           optionalBoolAttribute("Enable the DHCP server."),
-			"range_from":       optionalStringAttribute("Start of the DHCP address range."),
-			"range_to":         optionalStringAttribute("End of the DHCP address range."),
+			"range_from":       optionalStringAttribute("Start of the DHCP address range.", isIPAddress()),
+			"range_to":         optionalStringAttribute("End of the DHCP address range.", isIPAddress()),
 			"domain":           optionalStringAttribute("Domain name handed out to clients."),
 			"defaultleasetime": optionalIntAttribute("Default lease time (seconds)."),
 			"maxleasetime":     optionalIntAttribute("Maximum lease time (seconds)."),
-			"gateway":          optionalStringAttribute("Gateway address handed out to clients."),
-			"dnsserver":        schema.ListAttribute{ElementType: types.StringType, Optional: true, Description: "DNS servers handed out to clients."},
-			"winsserver":       schema.ListAttribute{ElementType: types.StringType, Optional: true, Description: "WINS servers handed out to clients."},
-			"ntpserver":        schema.ListAttribute{ElementType: types.StringType, Optional: true, Description: "NTP servers handed out to clients."},
+			"gateway":          optionalStringAttribute("Gateway address handed out to clients.", isIPAddress()),
+			"dnsserver":        optionalStringListAttribute("DNS servers handed out to clients.", listvalidator.ValueStringsAre(isIPAddress())),
+			"winsserver":       optionalStringListAttribute("WINS servers handed out to clients.", listvalidator.ValueStringsAre(isIPAddress())),
+			"ntpserver":        optionalStringListAttribute("NTP servers handed out to clients.", listvalidator.ValueStringsAre(isIPAddress())),
 			"denyunknown":      optionalStringAttribute("Deny unknown clients (enabled/disabled)."),
 			"staticmap": schema.ListNestedAttribute{
 				Optional:    true,
 				Description: "Static DHCP mappings.",
 				NestedObject: schema.NestedAttributeObject{
 					Attributes: map[string]schema.Attribute{
-						"mac":      requiredStringAttribute("Client MAC address."),
-						"ipaddr":   requiredStringAttribute("Reserved IP address."),
+						"mac":      requiredStringAttribute("Client MAC address.", isMAC()),
+						"ipaddr":   requiredStringAttribute("Reserved IP address.", isIPAddress()),
 						"cid":      optionalStringAttribute("Client identifier."),
-						"hostname": optionalStringAttribute("Client hostname."),
+						"hostname": optionalStringAttribute("Client hostname.", isHostname()),
 						"descr":    optionalStringAttribute("Description."),
 					},
 				},
@@ -265,7 +266,7 @@ func (r *dnsResolverHostOverrideResource) Schema(_ context.Context, _ resource.S
 			"id":     computedIDAttribute(),
 			"host":   requiredStringAttribute("The hostname (e.g. `www` or `*`)."),
 			"domain": requiredStringAttribute("The domain (e.g. `example.com`)."),
-			"ip":     schema.ListAttribute{ElementType: types.StringType, Required: true, Description: "IP addresses to resolve the host to."},
+			"ip":     requiredStringListAttribute("IP addresses to resolve the host to.", listvalidator.ValueStringsAre(isIPAddress())),
 			"descr":  optionalStringAttribute("Description."),
 			"aliases": schema.ListNestedAttribute{
 				Optional:    true,

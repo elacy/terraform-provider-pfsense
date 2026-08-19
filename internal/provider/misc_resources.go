@@ -4,6 +4,8 @@ import (
 	"context"
 
 	"github.com/elacy/terraform-provider-pfsense/v2/internal/client"
+	"github.com/hashicorp/terraform-plugin-framework-validators/int64validator"
+	"github.com/hashicorp/terraform-plugin-framework-validators/listvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -11,6 +13,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
@@ -67,6 +70,7 @@ func (r *firewallScheduleResource) Schema(_ context.Context, _ resource.SchemaRe
 			"timerange": schema.ListNestedAttribute{
 				Required:    true,
 				Description: "Time ranges that make up the schedule.",
+				Validators:  []validator.List{listvalidator.SizeAtLeast(1)},
 				NestedObject: schema.NestedAttributeObject{
 					Attributes: map[string]schema.Attribute{
 						"position":   optionalIntListAttribute("Weekday position(s) this range applies to (1 = Sunday through 7 = Saturday)."),
@@ -246,11 +250,12 @@ func (r *interfaceVLANResource) Schema(_ context.Context, _ resource.SchemaReque
 			"tag": schema.Int64Attribute{
 				Required:    true,
 				Description: "VLAN tag (1-4094).",
+				Validators:  []validator.Int64{int64validator.Between(1, 4094)},
 				PlanModifiers: []planmodifier.Int64{
 					int64planmodifier.RequiresReplace(),
 				},
 			},
-			"pcp":    optionalIntAttribute("802.1p priority code point (0-7)."),
+			"pcp":    optionalIntAttribute("802.1p priority code point (0-7).", int64validator.Between(0, 7)),
 			"descr":  optionalStringAttribute("Description for the VLAN."),
 			"vlanif": schema.StringAttribute{Computed: true, Description: "The generated VLAN interface name (e.g. `vlan0.10`)."},
 		},

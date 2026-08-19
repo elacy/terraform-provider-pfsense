@@ -4,10 +4,12 @@ import (
 	"context"
 
 	"github.com/elacy/terraform-provider-pfsense/v2/internal/client"
+	"github.com/hashicorp/terraform-plugin-framework-validators/listvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
@@ -71,9 +73,9 @@ func (r *routingGatewayResource) Schema(_ context.Context, _ resource.SchemaRequ
 			"disabled":                      optionalBoolAttribute("Disable this gateway."),
 			"ipprotocol":                    enumAttribute("Address family: inet or inet6.", "inet", "inet6"),
 			"interface":                     optionalStringAttribute("Interface this gateway is reachable through."),
-			"gateway":                       optionalStringAttribute("The gateway IP address."),
+			"gateway":                       optionalStringAttribute("The gateway IP address.", isIPAddressOrDynamic()),
 			"monitor_disable":               optionalBoolAttribute("Disable gateway monitoring."),
-			"monitor":                       optionalStringAttribute("Alternate IP address to monitor."),
+			"monitor":                       optionalStringAttribute("Alternate IP address to monitor.", isIPAddress()),
 			"action_disable":                optionalBoolAttribute("Do not take action when the gateway is down."),
 			"force_down":                    optionalBoolAttribute("Force the gateway as down."),
 			"dpinger_dont_add_static_route": optionalBoolAttribute("Do not add a static route for this gateway."),
@@ -291,6 +293,7 @@ func (r *routingGatewayGroupResource) Schema(_ context.Context, _ resource.Schem
 			"priorities": schema.ListNestedAttribute{
 				Required:    true,
 				Description: "Ordered gateway priorities (tiers).",
+				Validators:  []validator.List{listvalidator.SizeAtLeast(1)},
 				NestedObject: schema.NestedAttributeObject{
 					Attributes: map[string]schema.Attribute{
 						"gateway":    optionalStringAttribute("Gateway name."),
