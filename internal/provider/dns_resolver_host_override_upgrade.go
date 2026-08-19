@@ -129,7 +129,10 @@ func (m dnsResolverHostOverrideModelV0) toCurrent(ctx context.Context) (dnsResol
 	}
 
 	aliasType := types.ObjectType{AttrTypes: dnsAliasAttrTypes}
-	if m.Aliases != nil {
+	// SDKv2 persisted an unset optional list as [] (its zero value), which is
+	// indistinguishable from an explicitly empty list; both become null (the
+	// list counterpart of emptyToNull) and self-heal on the first Read.
+	if len(m.Aliases) > 0 {
 		elements := make([]attr.Value, 0, len(m.Aliases))
 		for _, alias := range m.Aliases {
 			obj, d := types.ObjectValue(dnsAliasAttrTypes, map[string]attr.Value{
@@ -150,8 +153,8 @@ func (m dnsResolverHostOverrideModelV0) toCurrent(ctx context.Context) (dnsResol
 		}
 		current.Aliases = list
 	} else {
-		// Null (unset) prior list stays null; the zero value of types.List is
-		// not a valid state value.
+		// A null or empty prior list becomes null; an empty types.List is not
+		// a valid state value and the first Read repopulates a non-empty one.
 		current.Aliases = types.ListNull(aliasType)
 	}
 

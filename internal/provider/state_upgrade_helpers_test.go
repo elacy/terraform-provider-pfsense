@@ -3,6 +3,7 @@ package provider
 import (
 	"testing"
 
+	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
@@ -53,5 +54,20 @@ func TestZeroToNull(t *testing.T) {
 	}
 	if got := zeroToNull(types.Int64Unknown()); !got.IsUnknown() {
 		t.Errorf("zeroToNull(unknown) = %v, want unknown", got)
+	}
+}
+
+func TestEmptyListToNull(t *testing.T) {
+	if got := emptyListToNull(types.ListValueMust(types.StringType, []attr.Value{})); !got.IsNull() {
+		t.Errorf("emptyListToNull([]) = %v, want null", got)
+	}
+	if got := emptyListToNull(types.ListValueMust(types.StringType, []attr.Value{types.StringValue("wan")})); len(got.Elements()) != 1 {
+		t.Errorf("emptyListToNull([wan]) = %v, want [wan]", got)
+	}
+	if got := emptyListToNull(types.ListNull(types.StringType)); !got.IsNull() {
+		t.Errorf("emptyListToNull(null) = %v, want null", got)
+	}
+	if got := emptyListToNull(types.ListUnknown(types.StringType)); !got.IsUnknown() {
+		t.Errorf("emptyListToNull(unknown) = %v, want unknown", got)
 	}
 }

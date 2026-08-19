@@ -39,8 +39,8 @@ func TestDNSResolverHostOverrideUpgradeStateV0To1(t *testing.T) {
 	if got, want := priorResourceID(raw), "www.example.com"; got != want {
 		t.Errorf("priorResourceID() = %q, want %q", got, want)
 	}
-	if got, want := splitDNSHostDomain("www.example.com"); got != "www" || want != "example.com" {
-		t.Errorf("splitDNSHostDomain() = (%q, %q), want (\"www\", \"example.com\")", got, want)
+	if host, domain := splitDNSHostDomain("www.example.com"); host != "www" || domain != "example.com" {
+		t.Errorf("splitDNSHostDomain() = (%q, %q), want (\"www\", \"example.com\")", host, domain)
 	}
 
 	priorValue, err := raw.UnmarshalWithOpts(
@@ -252,10 +252,10 @@ func TestDNSResolverHostOverrideModelV0ToCurrent(t *testing.T) {
 	}
 
 	// splitDNSHostDomain edge cases.
-	if got, want := splitDNSHostDomain("printer"); got != "printer" || want != "" {
-		t.Errorf("splitDNSHostDomain(\"printer\") = (%q, %q), want (\"printer\", \"\")", got, want)
+	if host, domain := splitDNSHostDomain("printer"); host != "printer" || domain != "" {
+		t.Errorf("splitDNSHostDomain(\"printer\") = (%q, %q), want (\"printer\", \"\")", host, domain)
 	}
-	if got, want := splitDNSHostDomain(""); got != "" || want != "" {
-		t.Errorf("splitDNSHostDomain(\"\") = (%q, %q), want (\"\", \"\")", got, want)
+	if host, domain := splitDNSHostDomain(""); host != "" || domain != "" {
+		t.Errorf("splitDNSHostDomain(\"\") = (%q, %q), want (\"\", \"\")", host, domain)
 	}
 }

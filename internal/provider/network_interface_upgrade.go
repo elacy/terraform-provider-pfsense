@@ -187,7 +187,7 @@ func (m networkInterfaceModelV0) toCurrent(ctx context.Context) (networkInterfac
 	cur.Dhcphostname = emptyToNull(m.DhcpHostname)
 	cur.AliasAddress = emptyToNull(m.AliasAddress)
 	cur.AliasSubnet = zeroToNull(m.AliasSubnet)
-	cur.Dhcprejectfrom = m.DhcpRejectFrom
+	cur.Dhcprejectfrom = emptyListToNull(m.DhcpRejectFrom)
 	cur.AdvDHCPConfigAdvanced = falseToNull(m.AdvDhcpConfigAdvanced)
 	// cur.AdvDHCPPtValues: no v0 equivalent; left null.
 	cur.AdvDHCPPtTimeout = zeroToNull(m.AdvDhcpPtTimeout)
@@ -214,7 +214,46 @@ func (m networkInterfaceModelV0) toCurrent(ctx context.Context) (networkInterfac
 	cur.Track6Interface = emptyToNull(m.TrackV6Interface)
 	cur.Track6PrefixIDHex = emptyToNull(m.TrackV6PrefixIdHex)
 
+	diags.Append(networkInterfaceDroppedAttributeWarnings(m)...)
+
 	return cur, diags
+}
+
+// networkInterfaceDroppedAttributeWarnings reports the v0 attributes that the
+// v1 pfsense_network_interface resource does not model. They are functional
+// DHCP settings, so dropping them silently would quietly change behaviour. The
+// pfSense configuration itself is untouched — only Terraform's tracking of
+// them is lost — and the practitioner has to re-apply them in the v2 resource.
+func networkInterfaceDroppedAttributeWarnings(m networkInterfaceModelV0) diag.Diagnostics {
+	var diags diag.Diagnostics
+
+	dropped := make([]string, 0, 2)
+	if !m.DhcpCvPt.IsNull() && m.DhcpCvPt.ValueInt64() != 0 {
+		dropped = append(dropped, "`dhcp_cv_pt`")
+	}
+	if !m.DhcpVlanEnable.IsNull() && m.DhcpVlanEnable.ValueBool() {
+		dropped = append(dropped, "`dhcp_vlan_enable`")
+	}
+	if len(dropped) == 0 {
+		return diags
+	}
+
+	list := ""
+	for i, name := range dropped {
+		if i > 0 {
+			list += ", "
+		}
+		list += name
+	}
+
+	diags.AddWarning(
+		"Network interface attributes not carried over",
+		"The "+list+" attribute(s) of pfsense_interface are not modelled by the v2 "+
+			"pfsense_network_interface resource and were dropped from state. The "+
+			"pfSense configuration itself is unchanged, but Terraform no longer "+
+			"tracks these settings; re-apply them in the v2 resource if needed.",
+	)
+	return diags
 }
 
 // networkInterfaceTypev4ToCurrent maps the v0 `type` value onto the v1
@@ -230,11 +269,17 @@ func (m networkInterfaceModelV0) toCurrent(ctx context.Context) (networkInterfac
 //	"dhcp"     -> "dhcp"
 //	""         -> "none"
 //
-// emptyToNull is deliberately NOT used here: `typev4` is Required in v1 and
-// must never be null. Anything outside the v0 domain is reported as a warning
-// (as with the v0-only ip_protocol = "inet46" in firewall_rule_upgrade.go)
-// and mapped to "none", because carrying it over verbatim would only fail the
-// OneOf validator on the next plan.
+// This is the one "optional in v0, required in v2" attribute that does NOT go
+// through the zero-value normaliser. `ipaddr` and `subnet` become null because
+// they have no value that honestly means "unset": null fails the next plan
+// loudly and forces the practitioner to supply a real value. `typev4`, by
+// contrast, has a dedicated "none" value that pfSense itself reports for an
+// interface with no IPv4 addressing, so synthesising "none" for the unset ""
+// is both semantically correct and matches what the first Read writes back —
+// the migration self-heals instead of failing loudly. Anything outside the v0
+// domain is reported as a warning (as with the v0-only ip_protocol = "inet46"
+// in firewall_rule_upgrade.go) and mapped to "none", because carrying it over
+// verbatim would only fail the OneOf validator on the next plan.
 func networkInterfaceTypev4ToCurrent(v types.String, diags *diag.Diagnostics) types.String {
 	switch typev4 := v.ValueString(); {
 	case v.IsNull() || v.IsUnknown() || typev4 == "":

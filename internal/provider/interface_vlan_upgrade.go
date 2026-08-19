@@ -99,19 +99,23 @@ func (r *interfaceVLANResource) upgradeStateV0To1(ctx context.Context, req resou
 //	pcp         -> pcp
 //	description -> descr
 //
-// `pcp` is carried over verbatim. The SDKv2 persisted an unset optional int as
-// 0, which is also the pfSense default priority code point, so the value the
-// v1 Read gets back from the API matches either way. The optional
-// `description` goes through emptyToNull so the SDKv2 "" zero value does not
-// land in v1 state as an empty string where the framework means null. The
-// computed "id" and "vlanif" are set by the StateUpgrader, not here.
+// `pcp` goes through zeroToNull like every other optional-in-v0 integer: the
+// SDKv2 persisted an unset optional int as 0, indistinguishable from an
+// explicit 0, so both become null and the API reports the real priority code
+// point back on the first Read, so state self-heals. (pcp is Optional but not
+// Computed, so a config that omits it may still plan against the API's 0 on
+// later refreshes — a pre-existing resource-level behaviour the upgrader
+// cannot change.) The optional `description` goes through emptyToNull so the
+// SDKv2 "" zero value does not land in v1 state as an empty string where the
+// framework means null. The computed "id" and "vlanif" are set by the
+// StateUpgrader, not here.
 func (m interfaceVLANModelV0) toCurrent(ctx context.Context) (interfaceVLANModel, diag.Diagnostics) {
 	var diags diag.Diagnostics
 
 	return interfaceVLANModel{
 		If:    m.If,
 		Tag:   m.Tag,
-		PCP:   m.PCP,
+		PCP:   zeroToNull(m.PCP),
 		Descr: emptyToNull(m.Description),
 	}, diags
 }

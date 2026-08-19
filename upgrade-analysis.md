@@ -112,6 +112,7 @@ spurious diff on every attribute the practitioner never set:
 | `TypeString`     | `""`                 | null        |
 | `TypeBool`       | `false`              | null        |
 | `TypeInt`        | `0`                  | null        |
+| `TypeList`       | `[]`                 | null        |
 
 The SDKv2 stored an unset optional attribute and an explicitly configured zero
 value identically, so this mapping is **ambiguous and one-way**: an attribute
@@ -127,10 +128,12 @@ silently carrying a wrong value. A handful of attributes deliberately keep
 their zero value because it is the correct carried-over value — each one
 carries a comment in `internal/provider/*_upgrade.go` explaining why:
 
-- `pfsense_interface_vlan.pcp` — `0` is also the pfSense default priority code
-  point, so the API reports `0` back either way.
 - `pfsense_services_dhcp_server.denyunknown` — the v1 bool `false` maps to the
   real v2 value `"disabled"`, not to null (see the field table above).
+- `pfsense_firewall_rule.tcp_flags_out_of` / `tcp_flags_set` — a present-but-empty
+  `tcp_flag` yields empty lists on purpose (rather than null), because an empty
+  list is the honest representation of "flags were configured but none were
+  set"; `tcp_flag` itself cannot be unset in SDKv2 state.
 
 ### `pfsense_services_dhcp_server` — attributes not carried over
 
@@ -166,9 +169,10 @@ The full old→new field mappings are encoded in
 
 Sections 4.1–4.3 cover `pfsense_firewall_rule`, which is a rewrite against the
 pfSense `/api/v2/firewall/rule` endpoint. Section 4.4 covers the
-`pfsense_network_interface` addressing-type values, and section 4.5 covers
+`pfsense_network_interface` addressing-type values, section 4.5 covers
 attributes that were optional in v1 and are required in v2 across both
-resources.
+resources, and section 4.6 covers `pfsense_network_interface` attributes that
+are no longer modelled.
 
 ### 4.1 Floating rules are no longer modelled
 
@@ -298,6 +302,21 @@ terraform state pull | grep -E '"subnet": *0'
 Add the missing arguments to your configuration (using the values pfSense
 actually has, visible in the UI or via `terraform state pull`) before running
 `terraform plan`.
+
+### 4.6 `pfsense_network_interface` — `dhcp_cv_pt` and `dhcp_vlan_enable` are dropped
+
+The v2 `pfsense_network_interface` resource does not model `dhcp_cv_pt` or
+`dhcp_vlan_enable`. They are functional DHCP settings, so when either is set
+the StateUpgrader emits a **warning** and drops the value from state. The
+pfSense configuration itself is unchanged — only Terraform's tracking of it is
+lost — and the setting has to be re-applied by hand (in the pfSense UI or a
+future provider resource).
+
+Check for affected interfaces before upgrading:
+
+```bash
+terraform state pull | grep -E '"(dhcp_cv_pt|dhcp_vlan_enable)": *(true|[1-9])'
+```
 
 ---
 

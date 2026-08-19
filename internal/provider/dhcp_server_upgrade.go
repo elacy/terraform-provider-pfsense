@@ -123,7 +123,7 @@ func (m dhcpServerModelV0) toCurrent(ctx context.Context) (dhcpServerModel, diag
 	cur.DefaultLease = zeroToNull(m.DefaultLeaseTime)
 	cur.MaxLease = upgradeStringToInt64(m.MaxLeaseTime, "max_lease_time", "pfsense_dhcp_server", &diags)
 	cur.Gateway = emptyToNull(m.Gateway)
-	cur.DNSServer = m.DNSServer
+	cur.DNSServer = emptyListToNull(m.DNSServer)
 	// WINSServer, NTPServer and StaticMap have no v0 equivalent; keep them
 	// null but with their real element types so the state can be written.
 	cur.WINSServer = types.ListNull(types.StringType)

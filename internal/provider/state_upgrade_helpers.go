@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"context"
 	"strconv"
 
 	"github.com/hashicorp/terraform-plugin-framework/diag"
@@ -109,14 +110,35 @@ func falseToNull(v types.Bool) types.Bool {
 // interface `subnet`): a null there fails the next plan loudly instead of
 // silently carrying a semantically wrong zero value, and the break is
 // documented in upgrade-analysis.md. Do not use it where `0` is a meaningful
-// configured value that the API does not report back (see the `pcp` note in
-// interface_vlan_upgrade.go).
+// configured value that the API does not report back.
 func zeroToNull(v types.Int64) types.Int64 {
 	if v.IsUnknown() {
 		return v
 	}
 	if v.IsNull() || v.ValueInt64() == 0 {
 		return types.Int64Null()
+	}
+	return v
+}
+
+// emptyListToNull normalises an optional list carried over from SDKv2 state.
+//
+// This is the list counterpart of emptyToNull: the SDKv2 cannot persist a null
+// list — an unset optional TypeList is written to state as [] (its zero value)
+// — so copying it verbatim produces a spurious [] → null diff on every list
+// the practitioner never configured. The ambiguity is the same one-way
+// mapping as falseToNull/zeroToNull: an explicit empty list and an unset list
+// are indistinguishable in SDKv2 state, and both become null. The attribute is
+// Optional, so null carries no meaning of its own and the first Read after the
+// upgrade repopulates it from the pfSense API. Do not use it where an empty
+// list is a meaningful configured value (see the TCP-flag note in
+// firewall_rule_upgrade.go).
+func emptyListToNull(v types.List) types.List {
+	if v.IsNull() || v.IsUnknown() {
+		return v
+	}
+	if len(v.Elements()) == 0 {
+		return types.ListNull(v.ElementType(context.Background()))
 	}
 	return v
 }
