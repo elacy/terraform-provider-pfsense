@@ -9,6 +9,9 @@ import (
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
+	"github.com/hashicorp/terraform-plugin-testing/knownvalue"
+	"github.com/hashicorp/terraform-plugin-testing/plancheck"
+	"github.com/hashicorp/terraform-plugin-testing/tfjsonpath"
 )
 
 // ipsecPhase1Mock is an in-memory IPsec phase 1 backend that emulates the v2
@@ -33,7 +36,7 @@ func (m *ipsecPhase1Mock) handler() http.Handler {
 				if filter != "" && a["descr"] != filter {
 					continue
 				}
-				cp := map[string]any{"id": i, "ikeid": a["ikeid"]}
+				cp := map[string]any{"id": i}
 				for k, v := range a {
 					cp[k] = v
 				}
@@ -71,14 +74,17 @@ func (m *ipsecPhase1Mock) handler() http.Handler {
 			}
 			delete(body, "apply")
 			delete(body, "id")
-			// ikeid is system-assigned and Update does not repopulate it, so
-			// the stored value must survive an in-place update unchanged.
-			ikeid := m.items[idx]["ikeid"]
+			// ikeid is system-assigned: the provider must never write it back
+			// on update. Reject any update that attempts to, so this mock
+			// actively proves ipsecPhase1Resource.payload does not send it.
+			if _, ok := body["ikeid"]; ok {
+				writeEnvelope(w, 422, nil)
+				return
+			}
 			for k, v := range body {
 				m.items[idx][k] = v
 			}
-			m.items[idx]["ikeid"] = ikeid
-			resp := map[string]any{"id": idx, "ikeid": ikeid}
+			resp := map[string]any{"id": idx}
 			for k, v := range m.items[idx] {
 				resp[k] = v
 			}
@@ -99,12 +105,21 @@ func (m *ipsecPhase1Mock) handler() http.Handler {
 	})
 }
 
-// TestAccIPsecPhase1ConstantIkeid verifies the observable behaviour that
-// constantComputed* exists to guarantee: a system-assigned ID (ikeid) survives
-// an in-place update of a non-key attribute unchanged, and the follow-up plan
-// is empty (no spurious "known after apply" diff). This exercises the real
-// resource lifecycle through an in-process mock rather than the framework's
-// UseStateForUnknown modifier in isolation.
+// TestAccIPsecPhase1ConstantIkeid verifies the observable behaviour a
+// system-assigned ID (ikeid) provides across the resource lifecycle: the API
+// assigns it on create, the provider does NOT send it back on update (the mock
+// returns 422 if it does, proving the computed-only constantComputed* attribute
+// is excluded from the Update payload), and it therefore survives an in-place
+// update of a non-key attribute unchanged, with the follow-up plan carrying it
+// forward as a known value rather than "known after apply".
+//
+// This test exercises the resource lifecycle. It deliberately does NOT assert
+// the UseStateForUnknown plan modifier fires, because for these attributes it
+// cannot: Terraform core already carries a computed-only value forward on an
+// in-place update (so the modifier's "known planned value" guard returns early),
+// and its only firing path — a prior state that holds the attribute null, e.g.
+// straight after import or a state upgrade — is unreachable here because Read
+// repopulates ikeid from the API on every refresh.
 func TestAccIPsecPhase1ConstantIkeid(t *testing.T) {
 	mock := &ipsecPhase1Mock{}
 	srv := httptest.NewServer(mock.handler())
@@ -123,6 +138,11 @@ func TestAccIPsecPhase1ConstantIkeid(t *testing.T) {
 			},
 			{
 				Config: ipsecPhase1Config(srv.URL, "10.0.0.2"),
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{
+						plancheck.ExpectKnownValue("pfsense_ipsec_phase1.p1", tfjsonpath.New("ikeid"), knownvalue.Int64Exact(1)),
+					},
+				},
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("pfsense_ipsec_phase1.p1", "ikeid", "1"),
 					resource.TestCheckResourceAttr("pfsense_ipsec_phase1.p1", "remote_gateway", "10.0.0.2"),
