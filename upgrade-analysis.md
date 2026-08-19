@@ -120,11 +120,12 @@ the safe direction — the attribute is optional, so null carries no meaning of
 its own, and the first `Read` after the upgrade re-reads the real value from
 the pfSense API, so state self-heals on the first refresh.
 
-Normalisation is applied **only to attributes that are optional in v2**.
-Required v2 attributes keep whatever the v0 state held (see section 4.5), and
-a handful of attributes deliberately keep their zero value because it is the
-correct carried-over value — each one carries a comment in
-`internal/provider/*_upgrade.go` explaining why:
+Normalisation is applied to every attribute that was **optional in v0** — even
+when it became required in v2 (see section 4.5): a zero value there is still
+"unset" data, and mapping it to null fails the next plan loudly rather than
+silently carrying a wrong value. A handful of attributes deliberately keep
+their zero value because it is the correct carried-over value — each one
+carries a comment in `internal/provider/*_upgrade.go` explaining why:
 
 - `pfsense_interface_vlan.pcp` — `0` is also the pfSense default priority code
   point, so the API reports `0` back either way.
@@ -275,11 +276,13 @@ fails with `The argument "<name>" is required, but no definition was found`.
 | `pfsense_network_interface` | `ip_address` → `ipaddr`      | optional  | required |
 | `pfsense_network_interface` | `subnet` → `subnet`          | optional  | required |
 
-`subnet` is the one case where the SDKv2 zero value is carried over verbatim:
-it is an integer and required in v2, so writing null would leave the state
-inconsistent with the schema. An interface that never set `subnet` therefore
-arrives in v2 state as `subnet = 0` and needs a real value in the
-configuration.
+Every attribute in this table was optional in v0, so its SDKv2 zero value
+(`""` for strings, `0` for `subnet`) is normalised to null in exactly the same
+way as the optional-in-v2 attributes in section 3. An interface that never set
+`ipaddr` or `subnet` therefore arrives in v2 state with those attributes null,
+which makes the next `terraform plan` fail with a clear "missing required
+argument" — add the real values to your configuration (the commands below find
+them).
 
 Find the resources you have to hand-edit before upgrading:
 

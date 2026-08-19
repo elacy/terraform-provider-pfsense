@@ -183,9 +183,9 @@ func TestRuleModelV0ToCurrent(t *testing.T) {
 func TestRuleModelV0ToCurrentNoTCPFlags(t *testing.T) {
 	ctx := context.Background()
 
-	// A null (unset) prior tcp_flag list maps to any=true (the old provider
-	// set TCPFlagsAny when the covered-flags list was empty), with null
-	// out_of/set lists rather than bare zero-value types.List.
+	// A null (unset) prior tcp_flag list maps to tcp_flags_any=null (the
+	// unset default is "any"), with null out_of/set lists rather than bare
+	// zero-value types.List.
 	prior := firewallRuleModelV0{
 		Type:        types.StringValue("pass"),
 		Interface:   types.ListValueMust(types.StringType, []attr.Value{types.StringValue("wan")}),
@@ -196,8 +196,8 @@ func TestRuleModelV0ToCurrentNoTCPFlags(t *testing.T) {
 	if diags.HasError() {
 		t.Fatalf("unexpected diagnostics: %s", diags)
 	}
-	if cur.TCPFlagsAny.ValueBool() != true {
-		t.Errorf("TCPFlagsAny = %v, want true for empty covered flags", cur.TCPFlagsAny.ValueBool())
+	if !cur.TCPFlagsAny.IsNull() {
+		t.Errorf("TCPFlagsAny = %v, want null for empty covered flags", cur.TCPFlagsAny)
 	}
 	if !cur.TCPFlagsOutOf.IsNull() {
 		t.Errorf("TCPFlagsOutOf = %v, want null", cur.TCPFlagsOutOf)
@@ -206,14 +206,14 @@ func TestRuleModelV0ToCurrentNoTCPFlags(t *testing.T) {
 		t.Errorf("TCPFlagsSet = %v, want null", cur.TCPFlagsSet)
 	}
 
-	// Empty-but-present list: any=true too, with explicit empty lists.
+	// Empty-but-present list: tcp_flags_any=null too, with explicit empty lists.
 	prior.TCPFlag = []firewallRuleTCPFlagV0{}
 	cur, diags = prior.toCurrent(ctx)
 	if diags.HasError() {
 		t.Fatalf("unexpected diagnostics: %s", diags)
 	}
-	if cur.TCPFlagsAny.ValueBool() != true {
-		t.Errorf("TCPFlagsAny = %v, want true for empty covered flags", cur.TCPFlagsAny.ValueBool())
+	if !cur.TCPFlagsAny.IsNull() {
+		t.Errorf("TCPFlagsAny = %v, want null for empty covered flags", cur.TCPFlagsAny)
 	}
 	if cur.TCPFlagsOutOf.IsNull() || len(cur.TCPFlagsOutOf.Elements()) != 0 {
 		t.Errorf("TCPFlagsOutOf = %v, want empty list", cur.TCPFlagsOutOf)

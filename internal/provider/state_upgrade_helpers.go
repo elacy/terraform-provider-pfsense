@@ -104,9 +104,13 @@ func falseToNull(v types.Bool) types.Bool {
 //
 // As with falseToNull the mapping is ambiguous and one-way — an explicit `0`
 // and an unset attribute are indistinguishable in SDKv2 state and both become
-// null — and self-heals on the first Read. Never use this on a Required
-// attribute, nor where `0` is a meaningful configured value that the API does
-// not report back (see the `pcp` note in interface_vlan_upgrade.go).
+// null — and self-heals on the first Read. Like emptyToNull it is also applied
+// to attributes that are Required in v2 but Optional in v0 (e.g. the network
+// interface `subnet`): a null there fails the next plan loudly instead of
+// silently carrying a semantically wrong zero value, and the break is
+// documented in upgrade-analysis.md. Do not use it where `0` is a meaningful
+// configured value that the API does not report back (see the `pcp` note in
+// interface_vlan_upgrade.go).
 func zeroToNull(v types.Int64) types.Int64 {
 	if v.IsUnknown() {
 		return v

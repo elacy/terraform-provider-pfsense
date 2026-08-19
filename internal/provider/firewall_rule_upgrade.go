@@ -231,9 +231,13 @@ func (m firewallRuleModelV0) toCurrent(ctx context.Context) (firewallRuleModel, 
 
 	// tcp_flag split (mirrors the old updateRequest): coveredFlags = every
 	// flag in the list (in order), setFlags = only present==true flags,
-	// TCPFlagsAny = true iff coveredFlags empty.
+	// TCPFlagsAny is null when coveredFlags is empty (the unset default is
+	// "any") and false when specific flags are selected.
 	if m.TCPFlag == nil {
-		cur.TCPFlagsAny = types.BoolValue(true)
+		// "any" is the unset default for tcp_flags_any (Optional, not
+		// Computed), so leaving it null avoids a spurious true->null diff on
+		// the next plan.
+		cur.TCPFlagsAny = types.BoolNull()
 		cur.TCPFlagsOutOf = types.ListNull(types.StringType)
 		cur.TCPFlagsSet = types.ListNull(types.StringType)
 		return cur, diags
@@ -251,7 +255,11 @@ func (m firewallRuleModelV0) toCurrent(ctx context.Context) (firewallRuleModel, 
 
 	cur.TCPFlagsOutOf = types.ListValueMust(types.StringType, outOf)
 	cur.TCPFlagsSet = types.ListValueMust(types.StringType, set)
-	cur.TCPFlagsAny = types.BoolValue(len(outOf) == 0)
+	if len(outOf) == 0 {
+		cur.TCPFlagsAny = types.BoolNull()
+	} else {
+		cur.TCPFlagsAny = types.BoolValue(false)
+	}
 
 	return cur, diags
 }

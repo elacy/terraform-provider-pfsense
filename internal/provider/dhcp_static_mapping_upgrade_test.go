@@ -43,9 +43,6 @@ func TestDHCPStaticMappingUpgradeStateV0To1(t *testing.T) {
 	if got, want := priorResourceID(raw), "wan.00:11:22:33:44:55"; got != want {
 		t.Errorf("priorResourceID() = %q, want %q", got, want)
 	}
-	if got, want := splitPriorStaticMappingID("wan.00:11:22:33:44:55"); got != "wan" || want != "00:11:22:33:44:55" {
-		t.Errorf("splitPriorStaticMappingID() = (%q, %q), want (\"wan\", \"00:11:22:33:44:55\")", got, want)
-	}
 
 	priorValue, err := raw.UnmarshalWithOpts(
 		dhcpStaticMappingPriorSchemaV0.Type().TerraformType(ctx),
@@ -182,8 +179,8 @@ func TestDHCPStaticMappingUpgradeStateV0To1MissingID(t *testing.T) {
 	}
 }
 
-// TestDHCPStaticMappingModelV0ToCurrent unit-tests the pure mapping on a
-// representative version-0 model.
+// TestDHCPStaticMappingModelV0ToCurrentZeroValueNormalisation unit-tests the
+// SDKv2 zero-value (false) → null mapping on a representative version-0 model.
 func TestDHCPStaticMappingModelV0ToCurrentZeroValueNormalisation(t *testing.T) {
 	ctx := context.Background()
 
@@ -202,6 +199,8 @@ func TestDHCPStaticMappingModelV0ToCurrentZeroValueNormalisation(t *testing.T) {
 	}
 }
 
+// TestDHCPStaticMappingModelV0ToCurrent unit-tests the pure mapping on a
+// representative version-0 model.
 func TestDHCPStaticMappingModelV0ToCurrent(t *testing.T) {
 	ctx := context.Background()
 

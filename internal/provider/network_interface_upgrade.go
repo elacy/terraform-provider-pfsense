@@ -177,12 +177,12 @@ func (m networkInterfaceModelV0) toCurrent(ctx context.Context) (networkInterfac
 	cur.Blockbogons = falseToNull(m.BlockBogons)
 	cur.Typev4 = networkInterfaceTypev4ToCurrent(m.Type, &diags)
 	cur.Ipaddr = emptyToNull(m.IpAddress)
-	// `subnet` is Required in v1, so it must never be null: an unset v0
-	// `subnet` (SDKv2 zero value 0) is carried over as 0 rather than
-	// normalised away. See the "optional in v1, required in v2" note in
-	// upgrade-analysis.md — such a resource needs a hand-edited config
-	// before the next plan will succeed either way.
-	cur.Subnet = m.Subnet
+	// `subnet` is normalised the same way as `ipaddr`: both were Optional in
+	// v0 and Required in v2, so an unset v0 value (SDKv2 zero value) becomes
+	// null. A null in a Required attribute fails the next plan loudly rather
+	// than silently carrying a semantically wrong 0 (/0 subnet). See the
+	// "optional in v0, required in v2" note in upgrade-analysis.md.
+	cur.Subnet = zeroToNull(m.Subnet)
 	cur.Gateway = emptyToNull(m.Gateway)
 	cur.Dhcphostname = emptyToNull(m.DhcpHostname)
 	cur.AliasAddress = emptyToNull(m.AliasAddress)

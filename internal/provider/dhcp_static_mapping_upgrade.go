@@ -2,7 +2,6 @@ package provider
 
 import (
 	"context"
-	"strings"
 
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -82,12 +81,12 @@ func (r *dhcpStaticMappingResource) upgradeStateV0To1(ctx context.Context, req r
 		return
 	}
 
-	iface, mac := splitPriorStaticMappingID(priorResourceID(req.RawState))
-	if iface == "" || mac == "" {
-		// Fall back to the natural-key attributes (both Required in v0).
-		iface = prior.Interface.ValueString()
-		mac = prior.MAC.ValueString()
-	}
+	// `interface` and `mac` are both Required in v0, so the prior-state
+	// attributes are always populated and are the authoritative source for
+	// the natural key. (Parsing the v0 composite id "<interface>.<mac>" is
+	// strictly weaker: a dotted interface name would split at the wrong dot.)
+	iface := prior.Interface.ValueString()
+	mac := prior.MAC.ValueString()
 	if iface == "" || mac == "" {
 		resp.Diagnostics.AddError(
 			"failed to upgrade state for pfsense_services_dhcp_static_mapping",
@@ -139,14 +138,4 @@ func (m dhcpStaticMappingModelV0) toCurrent(ctx context.Context) (dhcpStaticMapp
 		ARPTableStaticEntry: falseToNull(m.ARPTableStaticEntry),
 		Descr:               emptyToNull(m.Description),
 	}, diags
-}
-
-// splitPriorStaticMappingID splits the v0 resource id ("<interface>.<mac>")
-// into its natural-key parts.
-func splitPriorStaticMappingID(id string) (iface, mac string) {
-	parts := strings.SplitN(id, ".", 2)
-	if len(parts) != 2 {
-		return "", ""
-	}
-	return parts[0], parts[1]
 }

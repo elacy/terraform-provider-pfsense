@@ -368,9 +368,10 @@ func TestNetworkInterfaceModelV0ToCurrentZeroValueNormalisation(t *testing.T) {
 		}
 	}
 
-	// `subnet` is Required in v1, so it is never normalised to null.
-	if cur.Subnet.IsNull() {
-		t.Errorf("Subnet = null, want the carried-over 0 (the v1 attribute is Required)")
+	// `subnet` was Optional in v0 and Required in v2, so — like `ipaddr` — an
+	// unset v0 value is normalised to null and fails the next plan loudly.
+	if !cur.Subnet.IsNull() {
+		t.Errorf("Subnet = %v, want null for the SDKv2 0 zero value", cur.Subnet)
 	}
 }
 
