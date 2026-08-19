@@ -162,7 +162,11 @@ equivalent fields:
 Check for affected servers before upgrading:
 
 ```bash
-terraform state pull | grep -E '"(domain_search_list|mac_allow_list|mac_deny_list|ignore_bootp)"'
+# Only non-empty lists (or ignore_bootp=true) trigger the warning — SDKv2
+# persists every DHCP server with these keys set to zero values, so matching
+# the bare key name would flag 100% of servers and identify nothing.
+terraform state pull | grep -E '"(domain_search_list|mac_allow_list|mac_deny_list)": *\[[^]]' 
+terraform state pull | grep -E '"ignore_bootp": *true'
 ```
 
 The full old→new field mappings are encoded in

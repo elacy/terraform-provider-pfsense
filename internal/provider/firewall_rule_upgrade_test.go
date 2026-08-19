@@ -142,7 +142,7 @@ func TestRuleModelV0ToCurrent(t *testing.T) {
 	}
 
 	// tcp_flag split: set = present==true, out_of = all flags in order,
-	// any = false (non-empty covered list).
+	// any = null (never carried as a separate v0 attribute).
 	var setFlags []string
 	if diags := cur.TCPFlagsSet.ElementsAs(ctx, &setFlags, false); diags.HasError() {
 		t.Fatalf("decoding tcp_flags_set list: %s", diags)

@@ -111,7 +111,8 @@ func (r *firewallAliasResource) upgradeStateV0To1(ctx context.Context, req resou
 //	target      -> address + detail (flattened, zipped by index:
 //	              target[i].address -> address[i],
 //	              target[i].description -> detail[i],
-//	              absent/null description -> "")
+//	              absent/null description -> ""; when every description is
+//	              empty the whole detail list becomes null)
 //
 // The optional `description` goes through emptyToNull so the SDKv2 "" zero
 // value does not land in v1 state as an empty string where the framework means
