@@ -185,6 +185,54 @@ func TestDNSResolverHostOverrideUpgradeStateV0To1MissingID(t *testing.T) {
 	}
 }
 
+// TestDNSResolverHostOverrideUpgradeStateV0To1DotlessDNS covers the blocking
+// error path: a v1 `dns` with no dot has no domain component, so the upgrader
+// cannot derive host/domain (and therefore the v2 `host|domain` id) and must
+// abort rather than write a half-derived state.
+func TestDNSResolverHostOverrideUpgradeStateV0To1DotlessDNS(t *testing.T) {
+	ctx := context.Background()
+
+	rawJSON, err := json.Marshal(map[string]any{
+		"dns":          "printer",
+		"ip_addresses": []string{"10.0.0.6"},
+	})
+	if err != nil {
+		t.Fatalf("marshal prior raw state: %v", err)
+	}
+	raw := &tfprotov6.RawState{JSON: rawJSON}
+
+	priorValue, err := raw.UnmarshalWithOpts(
+		dnsResolverHostOverridePriorSchemaV0.Type().TerraformType(ctx),
+		tfprotov6.UnmarshalOpts{
+			ValueFromJSONOpts: tftypes.ValueFromJSONOpts{IgnoreUndefinedAttributes: true},
+		},
+	)
+	if err != nil {
+		t.Fatalf("unmarshal prior raw state: %v", err)
+	}
+
+	req := resource.UpgradeStateRequest{
+		RawState: raw,
+		State:    &tfsdk.State{Raw: priorValue, Schema: dnsResolverHostOverridePriorSchemaV0},
+	}
+	var resp resource.UpgradeStateResponse
+
+	var r dnsResolverHostOverrideResource
+	var sreq resource.SchemaRequest
+	var sresp resource.SchemaResponse
+	r.Schema(ctx, sreq, &sresp)
+	resp.State.Schema = sresp.Schema
+
+	r.upgradeStateV0To1(ctx, req, &resp)
+	if !resp.Diagnostics.HasError() {
+		t.Fatalf("expected an error diagnostic for a dotless dns, got: %s", resp.Diagnostics)
+	}
+	// The upgrader must not write any state when it aborts.
+	if !resp.State.Raw.IsNull() {
+		t.Errorf("state was written despite the error: %v", resp.State.Raw)
+	}
+}
+
 // TestDNSResolverHostOverrideModelV0ToCurrent unit-tests the pure mapping on a
 // representative version-0 model, including a null (unset) aliases list.
 func TestDNSResolverHostOverrideModelV0ToCurrent(t *testing.T) {

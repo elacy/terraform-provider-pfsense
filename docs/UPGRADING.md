@@ -313,9 +313,10 @@ fails with `The argument "<name>" is required, but no definition was found`.
 | `pfsense_network_interface` | `ip_address` → `ipaddr`      | optional  | required |
 | `pfsense_network_interface` | `subnet` → `subnet`          | optional  | required |
 
-Every attribute in this table was optional in v0, so its SDKv2 zero value
-(`""` for strings, `0` for `subnet`) is normalised to null in exactly the same
-way as the optional-in-v2 attributes in section 3. An interface that never set
+Every attribute in this table **except `type` → `typev4`** (whose remap to
+`"none"` is described in section 4.4) was optional in v0, so its SDKv2 zero
+value (`""` for strings, `0` for `subnet`) is normalised to null in exactly the
+same way as the optional-in-v2 attributes in section 3. An interface that never set
 `ipaddr` or `subnet` therefore arrives in v2 state with those attributes null,
 which makes the next `terraform plan` fail with a clear "missing required
 argument" — add the real values to your configuration (the commands below find
@@ -369,7 +370,7 @@ configuration.
 Check for affected servers before upgrading:
 
 ```bash
-terraform state pull | grep -E '"max_lease_time": *"[^0-9]'
+terraform state pull | grep -E '"max_lease_time": *"[^"]*[^0-9"][^"]*"'
 ```
 
 ### 4.8 `pfsense_unbound_host_override` — a `dns` value with no dot blocks the upgrade
@@ -404,7 +405,7 @@ not assume the same behaviour here.)
 Check for affected interfaces before upgrading:
 
 ```bash
-terraform state pull | grep -E '"(mss|subnet_v6)": *"[^0-9"]'
+terraform state pull | grep -E '"(mss|subnet_v6)": *"[^"]*[^0-9"][^"]*"'
 ```
 
 If one is non-numeric, canonicalise the burst size / prefix length in the
