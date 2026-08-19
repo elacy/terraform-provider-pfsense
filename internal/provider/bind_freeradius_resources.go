@@ -2,8 +2,10 @@ package provider
 
 import (
 	"context"
+	"regexp"
 
 	"github.com/elacy/terraform-provider-pfsense/v2/internal/client"
+	"github.com/hashicorp/terraform-plugin-framework-validators/listvalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/path"
@@ -64,6 +66,7 @@ func (r *bindAccessListResource) Schema(_ context.Context, _ resource.SchemaRequ
 			"entries": schema.ListNestedAttribute{
 				Required:    true,
 				Description: "The network entries for this access list.",
+				Validators:  []validator.List{listvalidator.SizeAtLeast(1)},
 				NestedObject: schema.NestedAttributeObject{
 					Attributes: map[string]schema.Attribute{
 						"value": schema.StringAttribute{
@@ -448,11 +451,7 @@ func (r *bindZoneResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 			"slaveip": optionalStringAttribute(
 				"The IP address of the slave server for this BIND zone.",
 			),
-			"forwarders": schema.ListAttribute{
-				ElementType: types.StringType,
-				Required:    true,
-				Description: "The forwarders for this BIND zone.",
-			},
+			"forwarders": requiredStringListAttribute("The forwarders for this BIND zone."),
 			"ttl": optionalIntAttribute(
 				"The default TTL interval (in seconds) for records within this BIND zone.",
 			),
@@ -741,13 +740,14 @@ func (r *freeradiusMACResource) Schema(_ context.Context, _ resource.SchemaReque
 			"mac": schema.StringAttribute{
 				Required:    true,
 				Description: "The MAC address of the entry. May be delimited with '-' or ':' (e.g. 'aa:bb:cc:dd:ee:ff').",
+				Validators:  []validator.String{isMAC()},
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
 				},
 			},
 			"description":       optionalStringAttribute("A description for this entry."),
-			"framed_ip_address": optionalStringAttribute("Framed-IP-Address MUST be supported by NAS."),
-			"framed_ip_netmask": optionalStringAttribute("Framed-IP-Netmask MUST be supported by NAS."),
+			"framed_ip_address": optionalStringAttribute("Framed-IP-Address MUST be supported by NAS.", isIPAddress()),
+			"framed_ip_netmask": optionalStringAttribute("Framed-IP-Netmask MUST be supported by NAS.", isIPAddress()),
 			"framed_route":      optionalStringAttribute("Framed-Route must be supported by NAS."),
 			"framed_ipv6_address": optionalStringAttribute(
 				"Framed IPv6 address or prefix (e.g. 2001:db8:abab::5 or 2001:db8:abab::/64).",
@@ -1026,7 +1026,7 @@ func (r *freeradiusUserResource) Schema(_ context.Context, _ resource.SchemaRequ
 					stringplanmodifier.RequiresReplace(),
 				},
 			},
-			"password": requiredStringAttribute("The password for this username."),
+			"password": requiredSensitiveStringAttribute("The password for this username."),
 			"password_encryption": enumAttribute(
 				"The encryption method for the password.",
 				"Cleartext-Password", "MD5-Password", "MD5-Password-hashed", "NT-Password-hashed",
@@ -1038,15 +1038,20 @@ func (r *freeradiusUserResource) Schema(_ context.Context, _ resource.SchemaRequ
 				"The authentication method for the Mobile One-Time Password (MOTP).",
 				"motp", "googleauth",
 			),
-			"motp_secret": requiredStringAttribute("The secret for the Mobile One-Time Password (MOTP)."),
-			"motp_pin":    requiredStringAttribute("The PIN for the Mobile One-Time Password (MOTP). It must be exactly 4 digits."),
+			"motp_secret": requiredSensitiveStringAttribute("The secret for the Mobile One-Time Password (MOTP)."),
+			"motp_pin": requiredSensitiveStringAttribute(
+				"The PIN for the Mobile One-Time Password (MOTP). It must be exactly 4 digits.",
+				allowEmpty(stringvalidator.RegexMatches(regexp.MustCompile(`^\d{4}$`), "must be exactly 4 digits")),
+			),
 			"motp_offset": optionalIntAttribute("The timezone offset for this user."),
 			"description": optionalStringAttribute("A description for this entry."),
 			"framed_ip_address": optionalStringAttribute(
 				"Framed-IP-Address MUST be supported by NAS.",
+				isIPAddress(),
 			),
 			"framed_ip_netmask": optionalStringAttribute(
 				"Framed-IP-Netmask MUST be supported by NAS.",
+				isIPAddress(),
 			),
 			"framed_route": optionalStringAttribute("Framed-Route must be supported by NAS."),
 			"framed_ipv6_address": optionalStringAttribute(

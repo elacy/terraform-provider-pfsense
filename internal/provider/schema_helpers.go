@@ -32,20 +32,39 @@ func requiredNameAttribute() schema.StringAttribute {
 	}
 }
 
-func requiredStringAttribute(desc string) schema.StringAttribute {
-	return schema.StringAttribute{Required: true, Description: desc}
+// requiredStringAttribute returns a Required string attribute. Unlike
+// optionalStringAttribute, the validators are NOT wrapped in allowEmpty: a
+// Required field rejects "" unless the call site passes allowEmpty(...) itself
+// (e.g. static-map ipaddr, where "" is the legitimate "no reserved address").
+func requiredStringAttribute(desc string, validators ...validator.String) schema.StringAttribute {
+	return schema.StringAttribute{Required: true, Description: desc, Validators: validators}
 }
 
-func optionalStringAttribute(desc string) schema.StringAttribute {
-	return schema.StringAttribute{Optional: true, Description: desc}
+// optionalStringAttribute returns an Optional string attribute. Shape
+// validators are wrapped so they also accept the empty string: this provider's
+// convention is that the pfSense API echoes "" for an Optional string it
+// considers unset, and practitioners pin `attr = ""` so the plan settles, so a
+// validator that rejects "" would make legitimate "unset" configs unwritable.
+func optionalStringAttribute(desc string, validators ...validator.String) schema.StringAttribute {
+	wrapped := make([]validator.String, 0, len(validators))
+	for _, v := range validators {
+		wrapped = append(wrapped, allowEmpty(v))
+	}
+	return schema.StringAttribute{Optional: true, Description: desc, Validators: wrapped}
+}
+
+// allowEmpty wraps a string validator so it accepts "" in addition to whatever
+// it already accepts, treating the empty string as the "unset" sentinel.
+func allowEmpty(v validator.String) validator.String {
+	return stringvalidator.Any(stringvalidator.OneOf(""), v)
 }
 
 func optionalBoolAttribute(desc string) schema.BoolAttribute {
 	return schema.BoolAttribute{Optional: true, Description: desc}
 }
 
-func optionalIntAttribute(desc string) schema.Int64Attribute {
-	return schema.Int64Attribute{Optional: true, Description: desc}
+func optionalIntAttribute(desc string, validators ...validator.Int64) schema.Int64Attribute {
+	return schema.Int64Attribute{Optional: true, Description: desc, Validators: validators}
 }
 
 func enumAttribute(desc string, choices ...string) schema.StringAttribute {
@@ -79,6 +98,8 @@ func parentIDAttribute(desc string) schema.StringAttribute {
 	return keyAttribute(desc)
 }
 
+// computedStringAttribute is a computed string with no plan modifier: on an
+// unknown it stays unknown and is populated by Read/Update.
 func computedStringAttribute(desc string) schema.StringAttribute {
 	return schema.StringAttribute{Computed: true, Description: desc}
 }
@@ -91,14 +112,23 @@ func computedBoolAttribute(desc string) schema.BoolAttribute {
 	return schema.BoolAttribute{Computed: true, Description: desc}
 }
 
-func requiredIntAttribute(desc string) schema.Int64Attribute {
-	return schema.Int64Attribute{Required: true, Description: desc}
+func requiredIntAttribute(desc string, validators ...validator.Int64) schema.Int64Attribute {
+	return schema.Int64Attribute{Required: true, Description: desc, Validators: validators}
 }
 
 // sensitiveStringAttribute is an optional attribute holding a credential; its
 // value is redacted from plan output and logs.
 func sensitiveStringAttribute(desc string) schema.StringAttribute {
 	return schema.StringAttribute{Optional: true, Sensitive: true, Description: desc}
+}
+
+// requiredSensitiveStringAttribute is a required attribute holding a
+// credential; its value is redacted from plan output and logs. It is
+// requiredStringAttribute with Sensitive set, so the same allowEmpty caveat
+// applies: validators are not wrapped, and "" is rejected unless the call site
+// passes allowEmpty(...) explicitly.
+func requiredSensitiveStringAttribute(desc string, validators ...validator.String) schema.StringAttribute {
+	return schema.StringAttribute{Required: true, Sensitive: true, Description: desc, Validators: validators}
 }
 
 func requiredEnumAttribute(desc string, choices ...string) schema.StringAttribute {
@@ -109,14 +139,23 @@ func requiredEnumAttribute(desc string, choices ...string) schema.StringAttribut
 	}
 }
 
-func optionalStringListAttribute(desc string) schema.ListAttribute {
-	return schema.ListAttribute{ElementType: types.StringType, Optional: true, Description: desc}
+func optionalStringListAttribute(desc string, validators ...validator.List) schema.ListAttribute {
+	return schema.ListAttribute{ElementType: types.StringType, Optional: true, Description: desc, Validators: validators}
 }
 
 func optionalIntListAttribute(desc string) schema.ListAttribute {
 	return schema.ListAttribute{ElementType: types.Int64Type, Optional: true, Description: desc}
 }
 
-func requiredStringListAttribute(desc string) schema.ListAttribute {
-	return schema.ListAttribute{ElementType: types.StringType, Required: true, Description: desc}
+// requiredStringListAttribute is the Required list counterpart of
+// optionalStringListAttribute. Element validators passed here (typically
+// listvalidator.ValueStringsAre) are NOT wrapped in allowEmpty, so an empty
+// element is rejected unless the call site allows it explicitly.
+func requiredStringListAttribute(desc string, validators ...validator.List) schema.ListAttribute {
+	return schema.ListAttribute{
+		ElementType: types.StringType,
+		Required:    true,
+		Description: desc,
+		Validators:  validators,
+	}
 }

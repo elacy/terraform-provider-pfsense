@@ -1,0 +1,222 @@
+package provider
+
+import (
+	"context"
+	"testing"
+
+	"github.com/hashicorp/terraform-plugin-framework/path"
+	"github.com/hashicorp/terraform-plugin-framework/resource"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
+	"github.com/hashicorp/terraform-plugin-framework/types"
+)
+
+// TestResourceSchemasAreValid runs the framework's own schema implementation
+// checks over every registered resource, catching malformed attributes and
+// misapplied validators at build time rather than at plan time.
+func TestResourceSchemasAreValid(t *testing.T) {
+	ctx := context.Background()
+	p := New("test")().(*pfsenseProvider)
+
+	for _, fn := range p.Resources(ctx) {
+		r := fn()
+
+		metaResp := &resource.MetadataResponse{}
+		r.Metadata(ctx, resource.MetadataRequest{ProviderTypeName: "pfsense"}, metaResp)
+
+		resp := &resource.SchemaResponse{}
+		r.Schema(ctx, resource.SchemaRequest{}, resp)
+		if resp.Diagnostics.HasError() {
+			t.Errorf("%s: schema returned diagnostics: %v", metaResp.TypeName, resp.Diagnostics)
+			continue
+		}
+		if diags := resp.Schema.ValidateImplementation(ctx); diags.HasError() {
+			t.Errorf("%s: invalid schema implementation: %v", metaResp.TypeName, diags)
+		}
+	}
+}
+
+func acceptsString(v validator.String, s string) bool {
+	resp := &validator.StringResponse{}
+	v.ValidateString(context.Background(), validator.StringRequest{
+		Path:        path.Root("test"),
+		ConfigValue: types.StringValue(s),
+	}, resp)
+	return !resp.Diagnostics.HasError()
+}
+
+func TestStringValidators(t *testing.T) {
+	tests := []struct {
+		name  string
+		v     validator.String
+		value string
+		want  bool
+	}{
+		{"ipv4", isIPAddress(), "192.168.1.1", true},
+		{"ipv6", isIPAddress(), "2001:db8::1", true},
+		{"ip octet out of range", isIPAddress(), "192.168.1.256", false},
+		{"ip rejects prefix", isIPAddress(), "10.0.0.0/24", false},
+		{"ip rejects empty", isIPAddress(), "", false},
+
+		{"cidr v4", isCIDR(), "10.0.0.0/24", true},
+		{"cidr v6", isCIDR(), "2001:db8::/64", true},
+		{"cidr requires prefix", isCIDR(), "10.0.0.0", false},
+		{"cidr prefix out of range", isCIDR(), "10.0.0.0/99", false},
+
+		{"fqdn", isHostname(), "vpn.example.com", true},
+		{"short hostname", isHostname(), "firewall", true},
+		{"hostname rejects space", isHostname(), "bad host", false},
+
+		{"ip or hostname takes ip", isIPAddressOrHostname(), "10.0.0.1", true},
+		{"ip or hostname takes hostname", isIPAddressOrHostname(), "vpn.example.com", true},
+		{"ip or hostname rejects junk", isIPAddressOrHostname(), "not a host!", false},
+
+		{"ip or dynamic takes ip", isIPAddressOrDynamic(), "10.0.0.1", true},
+		{"ip or dynamic takes dynamic", isIPAddressOrDynamic(), "dynamic", true},
+		{"ip or dynamic rejects junk", isIPAddressOrDynamic(), "not-an-ip", false},
+
+		{"port", isPort(), "1194", true},
+		{"port rejects name", isPort(), "http", false},
+		{"port rejects out of range", isPort(), "99999", false},
+
+		{"port range", isPortOrRange(), "8000:9000", true},
+		{"single port is a range", isPortOrRange(), "80", true},
+		{"port range accepts alias", isPortOrRange(), "web_alias", true},
+		{"port range rejects hyphen alias", isPortOrRange(), "web-alias", false},
+		{"port range rejects comma", isPortOrRange(), "80,443", false},
+		{"port range rejects out of range", isPortOrRange(), "8000:99999", false},
+		{"port range rejects triple", isPortOrRange(), "80:90:100", false},
+		{"port range rejects empty", isPortOrRange(), "", false},
+
+		{"mac colon delimited", isMAC(), "aa:bb:cc:dd:ee:ff", true},
+		{"mac dash delimited", isMAC(), "AA-BB-CC-DD-EE-FF", true},
+		{"mac too short", isMAC(), "aa:bb:cc:dd:ee", false},
+
+		{"date", isDate(), "08/19/2026", true},
+		{"date wrong format", isDate(), "2026-08-19", false},
+		{"date rejects single-digit month", isDate(), "8/19/2026", false},
+		{"date rejects dashes", isDate(), "08-19-2026", false},
+
+		{"ip or none takes ip", isIPAddressOrNone(), "10.0.0.1", true},
+		{"ip or none takes none", isIPAddressOrNone(), "none", true},
+		{"ip or none rejects junk", isIPAddressOrNone(), "not-an-ip", false},
+
+		{"ipv4 addr takes v4", isIPv4Address(), "192.168.1.1", true},
+		{"ipv4 addr rejects v6", isIPv4Address(), "2001:db8::1", false},
+		{"ipv6 addr takes v6", isIPv6Address(), "2001:db8::1", true},
+		{"ipv6 addr rejects v4", isIPv6Address(), "192.168.1.1", false},
+
+		{"cidr or alias takes cidr", isCIDROrAlias(), "10.0.0.0/24", true},
+		{"cidr or alias takes alias", isCIDROrAlias(), "internal_networks", true},
+		{"cidr or alias rejects space", isCIDROrAlias(), "internal networks", false},
+		{"cidr or alias rejects hyphen", isCIDROrAlias(), "internal-networks", false},
+		{"cidr or alias rejects empty", isCIDROrAlias(), "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := acceptsString(tt.v, tt.value); got != tt.want {
+				t.Errorf("%q accepted = %v, want %v", tt.value, got, tt.want)
+			}
+		})
+	}
+}
+
+// Null and unknown values must pass every validator: they are validated when
+// they become known, and rejecting them breaks computed/optional attributes.
+func TestStringValidatorsSkipNullAndUnknown(t *testing.T) {
+	validators := map[string]validator.String{
+		"isIPAddress":           isIPAddress(),
+		"isCIDR":                isCIDR(),
+		"isHostname":            isHostname(),
+		"isIPAddressOrHostname": isIPAddressOrHostname(),
+		"isIPAddressOrDynamic":  isIPAddressOrDynamic(),
+		"isIPAddressOrNone":     isIPAddressOrNone(),
+		"isCIDROrAlias":         isCIDROrAlias(),
+		"isIPv4Address":         isIPv4Address(),
+		"isIPv6Address":         isIPv6Address(),
+		"isPort":                isPort(),
+		"isPortOrRange":         isPortOrRange(),
+		"isMAC":                 isMAC(),
+		"isDate":                isDate(),
+	}
+	values := map[string]types.String{
+		"null":    types.StringNull(),
+		"unknown": types.StringUnknown(),
+	}
+
+	for name, v := range validators {
+		for kind, value := range values {
+			resp := &validator.StringResponse{}
+			v.ValidateString(context.Background(), validator.StringRequest{
+				Path:        path.Root("test"),
+				ConfigValue: value,
+			}, resp)
+			if resp.Diagnostics.HasError() {
+				t.Errorf("%s rejected a %s value: %v", name, kind, resp.Diagnostics)
+			}
+		}
+	}
+}
+
+func TestAllowEmpty(t *testing.T) {
+	v := allowEmpty(isIPAddress())
+
+	// "" is the Optional attribute's unset sentinel and must be accepted.
+	if !acceptsString(v, "") {
+		t.Errorf("allowEmpty(isIPAddress) rejected the empty string")
+	}
+	// A valid value still passes.
+	if !acceptsString(v, "192.168.1.1") {
+		t.Errorf("allowEmpty(isIPAddress) rejected a valid IP")
+	}
+	// An invalid value is still rejected.
+	if acceptsString(v, "not-an-ip") {
+		t.Errorf("allowEmpty(isIPAddress) accepted an invalid IP")
+	}
+}
+
+func acceptsInt(v validator.Int64, n int64) bool {
+	resp := &validator.Int64Response{}
+	v.ValidateInt64(context.Background(), validator.Int64Request{
+		Path:        path.Root("test"),
+		ConfigValue: types.Int64Value(n),
+	}, resp)
+	return !resp.Diagnostics.HasError()
+}
+
+// TestSubnetBits locks in the prefix-length bounds each isSubnetBits call
+// site depends on: 32 for IPv4 subnet bits, 128 for IPv6/VIP/IPsec netbits.
+func TestSubnetBits(t *testing.T) {
+	tests := []struct {
+		name string
+		max  int64
+		val  int64
+		want bool
+	}{
+		{"ipv4 lower bound", 32, 0, true},
+		{"ipv4 max", 32, 32, true},
+		{"ipv4 over max", 32, 33, false},
+		{"ipv4 negative", 32, -1, false},
+		{"ipv6 lower bound", 128, 0, true},
+		{"ipv6 max", 128, 128, true},
+		{"ipv6 over max", 128, 129, false},
+		{"ipv6 negative", 128, -1, false},
+	}
+	for _, tc := range tests {
+		if got := acceptsInt(isSubnetBits(tc.max), tc.val); got != tc.want {
+			t.Errorf("%s: isSubnetBits(%d)(%d) = %v, want %v", tc.name, tc.max, tc.val, got, tc.want)
+		}
+	}
+
+	// Null and unknown values are not validated (the framework skips them).
+	for _, v := range []types.Int64{types.Int64Null(), types.Int64Unknown()} {
+		resp := &validator.Int64Response{}
+		isSubnetBits(32).ValidateInt64(context.Background(), validator.Int64Request{
+			Path:        path.Root("test"),
+			ConfigValue: v,
+		}, resp)
+		if resp.Diagnostics.HasError() {
+			t.Errorf("isSubnetBits rejected a null/unknown value: %v", resp.Diagnostics)
+		}
+	}
+}

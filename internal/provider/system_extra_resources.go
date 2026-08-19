@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/elacy/terraform-provider-pfsense/v2/internal/client"
+	"github.com/hashicorp/terraform-plugin-framework-validators/int64validator"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -693,10 +694,10 @@ func (r *userAuthServerResource) Schema(_ context.Context, _ resource.SchemaRequ
 			"refid":                      computedStringAttribute("The unique reference ID for this authentication server, assigned by the system."),
 			"type":                       requiredEnumAttribute("The type of this authentication server.", "ldap", "radius"),
 			"name":                       keyAttribute("The descriptive name for this authentication server. Unique; immutable after creation."),
-			"host":                       requiredStringAttribute("The remote IP address or hostname of the authentication server."),
-			"ldap_port":                  optionalStringAttribute("The LDAP port to connect to on this authentication server (`type` must be `ldap`)."),
+			"host":                       requiredStringAttribute("The remote IP address or hostname of the authentication server.", isIPAddressOrHostname()),
+			"ldap_port":                  optionalStringAttribute("The LDAP port to connect to on this authentication server (`type` must be `ldap`).", isPort()),
 			"ldap_urltype":               enumAttribute("The encryption mode used when connecting to this LDAP server.", "Standard TCP", "STARTTLS Encrypt", "SSL/TLS Encrypted"),
-			"ldap_protver":               optionalIntAttribute("The LDAP protocol version to use (2 or 3)."),
+			"ldap_protver":               optionalIntAttribute("The LDAP protocol version to use (2 or 3).", int64validator.OneOf(2, 3)),
 			"ldap_timeout":               optionalIntAttribute("The timeout (in seconds) for connections to the LDAP server."),
 			"ldap_caref":                 optionalStringAttribute("The certificate authority used to validate the LDAP server certificate."),
 			"ldap_scope":                 enumAttribute("The LDAP search scope: `one` for a single level or `subtree` for the entire subtree.", "one", "subtree"),
@@ -717,8 +718,8 @@ func (r *userAuthServerResource) Schema(_ context.Context, _ resource.SchemaRequ
 			"ldap_nostrip_at":            optionalBoolAttribute("Do not strip away parts of the username after the @ symbol."),
 			"ldap_allow_unauthenticated": optionalBoolAttribute("Allow unauthenticated binding (binding with an existing login but an empty password)."),
 			"radius_secret":              sensitiveStringAttribute("The shared secret used when authenticating to this RADIUS server."),
-			"radius_auth_port":           optionalStringAttribute("The port used by RADIUS for authentication. Leave unset to disable authentication services."),
-			"radius_acct_port":           optionalStringAttribute("The port used by RADIUS for accounting. Leave unset to disable accounting services."),
+			"radius_auth_port":           optionalStringAttribute("The port used by RADIUS for authentication. Leave unset to disable authentication services.", isPort()),
+			"radius_acct_port":           optionalStringAttribute("The port used by RADIUS for accounting. Leave unset to disable accounting services.", isPort()),
 			"radius_protocol":            enumAttribute("The RADIUS protocol to use when authenticating.", "MSCHAPv2", "MSCHAPv1", "CHAP_MD5", "PAP"),
 			"radius_timeout":             optionalIntAttribute("The timeout (in seconds) for connections to this RADIUS server."),
 			"radius_nasip_attribute":     optionalStringAttribute("The interface whose IP is used as the `NAS-IP-Address` attribute during RADIUS Access-Requests."),

@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/elacy/terraform-provider-pfsense/v2/internal/client"
+	"github.com/hashicorp/terraform-plugin-framework-validators/listvalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -112,8 +113,11 @@ func (r *networkInterfaceResource) Schema(_ context.Context, _ resource.SchemaRe
 					stringvalidator.OneOf("static", "dhcp", "none"),
 				},
 			},
-			"ipaddr":                             requiredStringAttribute("IPv4 address (used when `typev4` is `static`)."),
-			"subnet":                             schema.Int64Attribute{Required: true, Description: "IPv4 subnet bit count (used when `typev4` is `static`)."},
+			// ipaddr is Required but only meaningful for a static typev4; a
+			// dhcp/none interface has no address and "" is its only "unset"
+			// value, so the shape validator must tolerate the empty string.
+			"ipaddr":                             requiredStringAttribute("IPv4 address (used when `typev4` is `static`).", allowEmpty(isIPv4Address())),
+			"subnet":                             requiredIntAttribute("IPv4 subnet bit count (used when `typev4` is `static`).", isSubnetBits(32)),
 			"gateway":                            optionalStringAttribute("IPv4 gateway (gateway or gateway group name)."),
 			"dhcphostname":                       optionalStringAttribute("Hostname to send to the DHCP server."),
 			"alias_address":                      optionalStringAttribute("IPv4 alias address for the interface."),
@@ -147,8 +151,8 @@ func (r *networkInterfaceResource) Schema(_ context.Context, _ resource.SchemaRe
 			// Marking any of them required would force a config to send values
 			// the API discards, and every apply would then leave a permanent
 			// diff. Supply only the ones the chosen `typev6` mode uses.
-			"ipaddrv6":             optionalStringAttribute("IPv6 address (used when `typev6` is `staticv6`)."),
-			"subnetv6":             optionalIntAttribute("IPv6 subnet bit count (used when `typev6` is `staticv6`)."),
+			"ipaddrv6":             optionalStringAttribute("IPv6 address (used when `typev6` is `staticv6`).", isIPv6Address()),
+			"subnetv6":             optionalIntAttribute("IPv6 subnet bit count (used when `typev6` is `staticv6`).", isSubnetBits(128)),
 			"gatewayv6":            optionalStringAttribute("Optional IPv6 gateway (gateway name)."),
 			"ipv6usev4iface":       optionalBoolAttribute("Use IPv4 gateway as the IPv6 gateway."),
 			"slaacusev4iface":      optionalBoolAttribute("Use IPv4 gateway as the IPv6 SLAAC gateway."),
@@ -419,12 +423,8 @@ func (r *interfaceBridgeResource) Schema(_ context.Context, _ resource.SchemaReq
 	resp.Schema = schema.Schema{
 		Description: "Manages a bridge interface. Identified by its description.",
 		Attributes: map[string]schema.Attribute{
-			"id": computedIDAttribute(),
-			"members": schema.ListAttribute{
-				ElementType: types.StringType,
-				Required:    true,
-				Description: "Physical interfaces that are members of the bridge.",
-			},
+			"id":      computedIDAttribute(),
+			"members": requiredStringListAttribute("Physical interfaces that are members of the bridge.", listvalidator.SizeAtLeast(1)),
 			"descr": schema.StringAttribute{
 				Required:    true,
 				Description: "Description (name) of the bridge. Unique among bridges; immutable after creation.",
@@ -795,12 +795,8 @@ func (r *interfaceLAGGResource) Schema(_ context.Context, _ resource.SchemaReque
 	resp.Schema = schema.Schema{
 		Description: "Manages a link aggregation (LAGG) interface. Identified by its description.",
 		Attributes: map[string]schema.Attribute{
-			"id": computedIDAttribute(),
-			"members": schema.ListAttribute{
-				ElementType: types.StringType,
-				Required:    true,
-				Description: "Physical interfaces that are members of the LAGG.",
-			},
+			"id":      computedIDAttribute(),
+			"members": requiredStringListAttribute("Physical interfaces that are members of the LAGG.", listvalidator.SizeAtLeast(1)),
 			"descr": schema.StringAttribute{
 				Required:    true,
 				Description: "Description (name) of the LAGG. Unique among laggs; immutable after creation.",
