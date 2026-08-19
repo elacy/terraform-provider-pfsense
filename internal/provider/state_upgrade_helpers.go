@@ -133,12 +133,12 @@ func zeroToNull(v types.Int64) types.Int64 {
 // upgrade repopulates it from the pfSense API. Do not use it where an empty
 // list is a meaningful configured value (see the TCP-flag note in
 // firewall_rule_upgrade.go).
-func emptyListToNull(v types.List) types.List {
+func emptyListToNull(ctx context.Context, v types.List) types.List {
 	if v.IsNull() || v.IsUnknown() {
 		return v
 	}
 	if len(v.Elements()) == 0 {
-		return types.ListNull(v.ElementType(context.Background()))
+		return types.ListNull(v.ElementType(ctx))
 	}
 	return v
 }

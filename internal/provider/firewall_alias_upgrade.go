@@ -128,7 +128,9 @@ func (m firewallAliasModelV0) toCurrent(ctx context.Context) (firewallAliasModel
 		Descr: emptyToNull(m.Description),
 	}
 
-	if m.Target == nil {
+	// SDKv2 persisted an unset optional list as [] (its zero value), so a nil
+	// or empty target both become null (the list counterpart of emptyToNull).
+	if len(m.Target) == 0 {
 		cur.Address = types.ListNull(types.StringType)
 		cur.Detail = types.ListNull(types.StringType)
 		return cur, diags

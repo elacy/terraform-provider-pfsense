@@ -246,9 +246,15 @@ rejected it), but if hand-edited state contains one the upgrader emits a
 **warning** and writes `none`, so the upgraded state stays valid instead of
 failing the v2 `OneOf` validator on the next plan.
 
-**Update your configuration to match**: an interface that had `type = "staticv4"`
-must now say `typev4 = "static"`, and an interface that never set `type` must
-say `typev4 = "none"` (or the mode it actually uses).
+**Update your configuration to match**: set `typev4` to the addressing mode the
+interface *actually* uses — check the pfSense UI, or run `terraform state pull`
+after a refresh. An interface that had `type = "staticv4"` must say
+`typev4 = "static"`. An interface that never set `type` in the v1 config is the
+dangerous case: its real mode is still configured in pfSense (often `static`),
+but the upgrader only knows the v1 state was empty, so it writes `typev4 =
+"none"` as the honest "unknown". **Do not leave `typev4 = "none"` on an
+interface that actually has IPv4** — that drops its address on the next apply.
+Set it to the real mode, and reserve `none` only for interfaces with no IPv4.
 
 `type_v6` → `typev6` needs no value translation — the v2 domain
 (`staticv6`, `dhcp6`, `slaac`, `6rd`, `track6`, `6to4`, `none`) is a superset
@@ -333,12 +339,16 @@ terraform state pull | grep -E '"(dhcp_cv_pt|dhcp_vlan_enable)": *(true|[1-9])'
    `mac_allow_list`, `mac_deny_list` and `ignore_bootp`, and plan the
    `pfsense_services_dhcp_address_pool` resources that will replace them.
 7. Rewrite `type` as `typev4` on every `pfsense_network_interface`
-   (`staticv4` → `static`, unset → `none`) — section 4.4.
+   (`staticv4` → `static`). For interfaces that never set `type`, set `typev4`
+   to the mode the interface actually uses (check the pfSense UI or
+   `terraform state pull`) — do **not** blindly use `none` unless the interface
+   genuinely has no IPv4 — section 4.4.
 8. Add the arguments that became required in v2 (section 4.5): `ipprotocol`,
    `source` and `destination` on firewall rules; `typev4`, `ipaddr` and
    `subnet` on network interfaces.
 9. `terraform plan` — expect **no** diffs (StateUpgraders migrate in place);
-   any remaining "forces replacement" on a migrated resource is a bug to report.
+   any remaining "forces replacement" on a migrated resource, or any in-place
+   `typev4` change, is a red flag to investigate before applying.
 10. `terraform apply`.
 
 If a resource does force replacement after following this guide, file an issue

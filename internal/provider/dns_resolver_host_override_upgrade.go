@@ -101,6 +101,15 @@ func (r *dnsResolverHostOverrideResource) upgradeStateV0To1(ctx context.Context,
 		return
 	}
 	host, domain := splitDNSHostDomain(fqdn)
+	if domain == "" {
+		resp.Diagnostics.AddError(
+			"failed to upgrade state for pfsense_services_dns_resolver_host_override",
+			"the host override \""+fqdn+"\" has no domain component: a v1 FQDN must contain "+
+				"at least one dot (host.domain). Add a domain to the override in pfSense, "+
+				"refresh the v1 state, then re-run the upgrade",
+		)
+		return
+	}
 	current.Host = types.StringValue(host)
 	current.Domain = types.StringValue(domain)
 	current.ID = types.StringValue(r.key(host, domain))

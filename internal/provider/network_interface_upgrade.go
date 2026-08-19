@@ -187,7 +187,7 @@ func (m networkInterfaceModelV0) toCurrent(ctx context.Context) (networkInterfac
 	cur.Dhcphostname = emptyToNull(m.DhcpHostname)
 	cur.AliasAddress = emptyToNull(m.AliasAddress)
 	cur.AliasSubnet = zeroToNull(m.AliasSubnet)
-	cur.Dhcprejectfrom = emptyListToNull(m.DhcpRejectFrom)
+	cur.Dhcprejectfrom = emptyListToNull(ctx, m.DhcpRejectFrom)
 	cur.AdvDHCPConfigAdvanced = falseToNull(m.AdvDhcpConfigAdvanced)
 	// cur.AdvDHCPPtValues: no v0 equivalent; left null.
 	cur.AdvDHCPPtTimeout = zeroToNull(m.AdvDhcpPtTimeout)

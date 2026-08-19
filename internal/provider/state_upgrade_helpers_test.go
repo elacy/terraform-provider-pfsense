@@ -58,16 +58,17 @@ func TestZeroToNull(t *testing.T) {
 }
 
 func TestEmptyListToNull(t *testing.T) {
-	if got := emptyListToNull(types.ListValueMust(types.StringType, []attr.Value{})); !got.IsNull() {
+	ctx := t.Context()
+	if got := emptyListToNull(ctx, types.ListValueMust(types.StringType, []attr.Value{})); !got.IsNull() {
 		t.Errorf("emptyListToNull([]) = %v, want null", got)
 	}
-	if got := emptyListToNull(types.ListValueMust(types.StringType, []attr.Value{types.StringValue("wan")})); len(got.Elements()) != 1 {
+	if got := emptyListToNull(ctx, types.ListValueMust(types.StringType, []attr.Value{types.StringValue("wan")})); len(got.Elements()) != 1 {
 		t.Errorf("emptyListToNull([wan]) = %v, want [wan]", got)
 	}
-	if got := emptyListToNull(types.ListNull(types.StringType)); !got.IsNull() {
+	if got := emptyListToNull(ctx, types.ListNull(types.StringType)); !got.IsNull() {
 		t.Errorf("emptyListToNull(null) = %v, want null", got)
 	}
-	if got := emptyListToNull(types.ListUnknown(types.StringType)); !got.IsUnknown() {
+	if got := emptyListToNull(ctx, types.ListUnknown(types.StringType)); !got.IsUnknown() {
 		t.Errorf("emptyListToNull(unknown) = %v, want unknown", got)
 	}
 }
