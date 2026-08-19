@@ -1051,9 +1051,11 @@ func (r *freeradiusUserResource) Schema(_ context.Context, _ resource.SchemaRequ
 			"description": optionalStringAttribute("A description for this entry."),
 			"framed_ip_address": optionalStringAttribute(
 				"Framed-IP-Address MUST be supported by NAS.",
+				isIPAddress(),
 			),
 			"framed_ip_netmask": optionalStringAttribute(
 				"Framed-IP-Netmask MUST be supported by NAS.",
+				isIPAddress(),
 			),
 			"framed_route": optionalStringAttribute("Framed-Route must be supported by NAS."),
 			"framed_ipv6_address": optionalStringAttribute(

@@ -3,7 +3,6 @@ package provider
 import (
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
@@ -107,10 +106,6 @@ func computedStringAttribute(desc string) schema.StringAttribute {
 	return schema.StringAttribute{Computed: true, Description: desc}
 }
 
-func computedIntAttribute(desc string) schema.Int64Attribute {
-	return schema.Int64Attribute{Computed: true, Description: desc}
-}
-
 func computedBoolAttribute(desc string) schema.BoolAttribute {
 	return schema.BoolAttribute{Computed: true, Description: desc}
 }
@@ -137,16 +132,6 @@ func constantComputedIntAttribute(desc string) schema.Int64Attribute {
 		Description: desc,
 		PlanModifiers: []planmodifier.Int64{
 			int64planmodifier.UseStateForUnknown(),
-		},
-	}
-}
-
-func constantComputedBoolAttribute(desc string) schema.BoolAttribute {
-	return schema.BoolAttribute{
-		Computed:    true,
-		Description: desc,
-		PlanModifiers: []planmodifier.Bool{
-			boolplanmodifier.UseStateForUnknown(),
 		},
 	}
 }

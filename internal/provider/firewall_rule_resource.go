@@ -96,13 +96,7 @@ func (r *firewallRuleResource) Schema(_ context.Context, _ resource.SchemaReques
 				Description: "The address family: inet or inet6.",
 				Validators:  []validator.String{stringvalidator.OneOf("inet", "inet6")},
 			},
-			"protocol": schema.StringAttribute{
-				Optional:    true,
-				Description: "The protocol this rule matches (tcp, udp, icmp, ...).",
-				Validators: []validator.String{
-					stringvalidator.OneOf(firewallProtocols...),
-				},
-			},
+			"protocol": optionalStringAttribute("The protocol this rule matches (tcp, udp, icmp, ...).", stringvalidator.OneOf(firewallProtocols...)),
 			"icmptype": schema.ListAttribute{
 				ElementType: types.StringType,
 				Optional:    true,
@@ -112,18 +106,12 @@ func (r *firewallRuleResource) Schema(_ context.Context, _ resource.SchemaReques
 				Required:    true,
 				Description: "Source address: IP, subnet CIDR, alias name, interface, `any`, `(self)`, or negated with `!`.",
 			},
-			"source_port": schema.StringAttribute{
-				Optional:    true,
-				Description: "Source port or range (`port` or `start:end`), or port alias.",
-			},
+			"source_port": optionalStringAttribute("Source port or range (`port` or `start:end`), or port alias.", isPortOrRange()),
 			"destination": schema.StringAttribute{
 				Required:    true,
 				Description: "Destination address: IP, subnet CIDR, alias name, interface, `any`, `(self)`, or negated with `!`.",
 			},
-			"destination_port": schema.StringAttribute{
-				Optional:    true,
-				Description: "Destination port or range (`port` or `start:end`), or port alias.",
-			},
+			"destination_port": optionalStringAttribute("Destination port or range (`port` or `start:end`), or port alias.", isPortOrRange()),
 			"descr": schema.StringAttribute{
 				Required:    true,
 				Description: "A unique description. Used to identify the rule; must be unique across all rules.",

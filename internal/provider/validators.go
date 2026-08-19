@@ -68,6 +68,25 @@ func isCIDR() validator.String {
 	}
 }
 
+// isCIDROrAlias accepts a CIDR network or a firewall alias name. pfSense lets
+// the OpenVPN local_network/remote_network fields hold alias names in addition
+// to CIDR ranges, and an alias name can be any non-CIDR string, so only
+// CIDR-shaped values are format-checked; anything else is accepted as an alias.
+func isCIDROrAlias() validator.String {
+	return stringCheck{
+		desc: "must be a CIDR network or an alias name",
+		ok: func(s string) bool {
+			if s == "" {
+				return false
+			}
+			if _, err := netip.ParsePrefix(s); err == nil {
+				return true // a CIDR network
+			}
+			return true // a non-CIDR value: a firewall alias name
+		},
+	}
+}
+
 // Deliberately lenient: pfSense accepts short names as well as FQDNs, and a
 // bare IPv4 address also satisfies this shape.
 var hostnameRe = regexp.MustCompile(`^[A-Za-z0-9_]([A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?(\.[A-Za-z0-9_]([A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?)*\.?$`)

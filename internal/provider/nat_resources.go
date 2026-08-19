@@ -562,7 +562,7 @@ func (r *firewallNATOutboundResource) Schema(_ context.Context, _ resource.Schem
 				Required:    true,
 				Description: "The protocol this rule should match.",
 				Validators: []validator.String{
-					stringvalidator.OneOf("tcp", "udp", "tcp/udp", "icmp", "esp", "ah", "gre", "ipv6", "igmp", "pim", "ospf"),
+					stringvalidator.OneOf(firewallProtocols...),
 				},
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),

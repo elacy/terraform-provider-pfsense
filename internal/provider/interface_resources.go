@@ -114,7 +114,10 @@ func (r *networkInterfaceResource) Schema(_ context.Context, _ resource.SchemaRe
 					stringvalidator.OneOf("static", "dhcp", "none"),
 				},
 			},
-			"ipaddr":                             requiredStringAttribute("IPv4 address (used when `typev4` is `static`).", isIPAddress()),
+			// ipaddr is Required but only meaningful for a static typev4; a
+			// dhcp/none interface has no address and "" is its only "unset"
+			// value, so the shape validator must tolerate the empty string.
+			"ipaddr":                             requiredStringAttribute("IPv4 address (used when `typev4` is `static`).", stringvalidator.Any(stringvalidator.OneOf(""), isIPAddress())),
 			"subnet":                             requiredIntAttribute("IPv4 subnet bit count (used when `typev4` is `static`).", isSubnetBits(32)),
 			"gateway":                            optionalStringAttribute("IPv4 gateway (gateway or gateway group name)."),
 			"dhcphostname":                       optionalStringAttribute("Hostname to send to the DHCP server."),
