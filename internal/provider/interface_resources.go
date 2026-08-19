@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/elacy/terraform-provider-pfsense/v2/internal/client"
-	"github.com/hashicorp/terraform-plugin-framework-validators/int64validator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/listvalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/path"
@@ -101,7 +100,7 @@ func (r *networkInterfaceResource) Schema(_ context.Context, _ resource.SchemaRe
 			"enable":      optionalBoolAttribute("Whether the interface is enabled."),
 			"descr":       requiredStringAttribute("Description (name) of the interface."),
 			"spoofmac":    optionalStringAttribute("MAC address to spoof on this interface."),
-			"mtu":         optionalIntAttribute("MTU for the interface.", int64validator.Between(576, 9216)),
+			"mtu":         optionalIntAttribute("MTU for the interface."),
 			"mss":         optionalIntAttribute("MSS for the interface."),
 			"media":       optionalStringAttribute("Media type (e.g. `1000baseT`)."),
 			"mediaopt":    optionalStringAttribute("Media option (e.g. `full-duplex`)."),
@@ -117,7 +116,7 @@ func (r *networkInterfaceResource) Schema(_ context.Context, _ resource.SchemaRe
 			// ipaddr is Required but only meaningful for a static typev4; a
 			// dhcp/none interface has no address and "" is its only "unset"
 			// value, so the shape validator must tolerate the empty string.
-			"ipaddr":                             requiredStringAttribute("IPv4 address (used when `typev4` is `static`).", stringvalidator.Any(stringvalidator.OneOf(""), isIPAddress())),
+			"ipaddr":                             requiredStringAttribute("IPv4 address (used when `typev4` is `static`).", allowEmpty(isIPAddress())),
 			"subnet":                             requiredIntAttribute("IPv4 subnet bit count (used when `typev4` is `static`).", isSubnetBits(32)),
 			"gateway":                            optionalStringAttribute("IPv4 gateway (gateway or gateway group name)."),
 			"dhcphostname":                       optionalStringAttribute("Hostname to send to the DHCP server."),

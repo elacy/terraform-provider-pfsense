@@ -1039,14 +1039,10 @@ func (r *freeradiusUserResource) Schema(_ context.Context, _ resource.SchemaRequ
 				"motp", "googleauth",
 			),
 			"motp_secret": requiredSensitiveStringAttribute("The secret for the Mobile One-Time Password (MOTP)."),
-			"motp_pin": schema.StringAttribute{
-				Required:    true,
-				Sensitive:   true,
-				Description: "The PIN for the Mobile One-Time Password (MOTP). It must be exactly 4 digits.",
-				Validators: []validator.String{
-					stringvalidator.RegexMatches(regexp.MustCompile(`^\d{4}$`), "must be exactly 4 digits"),
-				},
-			},
+			"motp_pin": requiredSensitiveStringAttribute(
+				"The PIN for the Mobile One-Time Password (MOTP). It must be exactly 4 digits.",
+				stringvalidator.RegexMatches(regexp.MustCompile(`^\d{4}$`), "must be exactly 4 digits"),
+			),
 			"motp_offset": optionalIntAttribute("The timezone offset for this user."),
 			"description": optionalStringAttribute("A description for this entry."),
 			"framed_ip_address": optionalStringAttribute(

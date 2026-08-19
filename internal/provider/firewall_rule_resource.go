@@ -96,7 +96,7 @@ func (r *firewallRuleResource) Schema(_ context.Context, _ resource.SchemaReques
 				Description: "The address family: inet or inet6.",
 				Validators:  []validator.String{stringvalidator.OneOf("inet", "inet6")},
 			},
-			"protocol": optionalStringAttribute("The protocol this rule matches (tcp, udp, icmp, ...).", stringvalidator.OneOf(firewallProtocols...)),
+			"protocol": optionalStringAttribute("The protocol this rule matches (tcp, udp, icmp, ...).", stringvalidator.OneOf(firewallRuleProtocols...)),
 			"icmptype": schema.ListAttribute{
 				ElementType: types.StringType,
 				Optional:    true,

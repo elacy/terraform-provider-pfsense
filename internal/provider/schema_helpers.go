@@ -3,7 +3,6 @@ package provider
 import (
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
@@ -43,21 +42,17 @@ func requiredStringAttribute(desc string, validators ...validator.String) schema
 // considers unset, and practitioners pin `attr = ""` so the plan settles, so a
 // validator that rejects "" would make legitimate "unset" configs unwritable.
 func optionalStringAttribute(desc string, validators ...validator.String) schema.StringAttribute {
-	return schema.StringAttribute{Optional: true, Description: desc, Validators: tolerateEmpty(validators)}
+	wrapped := make([]validator.String, 0, len(validators))
+	for _, v := range validators {
+		wrapped = append(wrapped, allowEmpty(v))
+	}
+	return schema.StringAttribute{Optional: true, Description: desc, Validators: wrapped}
 }
 
-// tolerateEmpty wraps each string validator so it accepts "" in addition to
-// whatever it already accepts, treating the empty string as the Optional
-// attribute's "unset" sentinel.
-func tolerateEmpty(validators []validator.String) []validator.String {
-	if len(validators) == 0 {
-		return nil
-	}
-	out := make([]validator.String, 0, len(validators))
-	for _, v := range validators {
-		out = append(out, stringvalidator.Any(stringvalidator.OneOf(""), v))
-	}
-	return out
+// allowEmpty wraps a string validator so it accepts "" in addition to whatever
+// it already accepts, treating the empty string as the "unset" sentinel.
+func allowEmpty(v validator.String) validator.String {
+	return stringvalidator.Any(stringvalidator.OneOf(""), v)
 }
 
 func optionalBoolAttribute(desc string) schema.BoolAttribute {
@@ -100,40 +95,17 @@ func parentIDAttribute(desc string) schema.StringAttribute {
 }
 
 // computedStringAttribute is a computed string with no plan modifier: on an
-// unknown it stays unknown and is populated by Read/Update. Use
-// constantComputedStringAttribute for system-assigned constants instead.
+// unknown it stays unknown and is populated by Read/Update.
 func computedStringAttribute(desc string) schema.StringAttribute {
 	return schema.StringAttribute{Computed: true, Description: desc}
 }
 
+func computedIntAttribute(desc string) schema.Int64Attribute {
+	return schema.Int64Attribute{Computed: true, Description: desc}
+}
+
 func computedBoolAttribute(desc string) schema.BoolAttribute {
 	return schema.BoolAttribute{Computed: true, Description: desc}
-}
-
-// constantComputedStringAttribute is a computed attribute whose value is a
-// system-assigned constant (the API assigns it once and never changes it).
-// UseStateForUnknown keeps the prior value across plans so import/refresh
-// never surfaces a spurious unknown→known diff. Do NOT use for values derived
-// from updatable config (e.g. a public key derived from a private key): those
-// must recompute when their inputs change.
-func constantComputedStringAttribute(desc string) schema.StringAttribute {
-	return schema.StringAttribute{
-		Computed:    true,
-		Description: desc,
-		PlanModifiers: []planmodifier.String{
-			stringplanmodifier.UseStateForUnknown(),
-		},
-	}
-}
-
-func constantComputedIntAttribute(desc string) schema.Int64Attribute {
-	return schema.Int64Attribute{
-		Computed:    true,
-		Description: desc,
-		PlanModifiers: []planmodifier.Int64{
-			int64planmodifier.UseStateForUnknown(),
-		},
-	}
 }
 
 func requiredIntAttribute(desc string, validators ...validator.Int64) schema.Int64Attribute {
@@ -148,8 +120,8 @@ func sensitiveStringAttribute(desc string) schema.StringAttribute {
 
 // requiredSensitiveStringAttribute is a required attribute holding a
 // credential; its value is redacted from plan output and logs.
-func requiredSensitiveStringAttribute(desc string) schema.StringAttribute {
-	return schema.StringAttribute{Required: true, Sensitive: true, Description: desc}
+func requiredSensitiveStringAttribute(desc string, validators ...validator.String) schema.StringAttribute {
+	return schema.StringAttribute{Required: true, Sensitive: true, Description: desc, Validators: validators}
 }
 
 func requiredEnumAttribute(desc string, choices ...string) schema.StringAttribute {

@@ -70,11 +70,13 @@ func isCIDR() validator.String {
 
 // isCIDROrAlias accepts a CIDR network or a firewall alias name. pfSense lets
 // the OpenVPN local_network/remote_network fields hold alias names in addition
-// to CIDR ranges, and an alias name can be any non-CIDR string, so only
-// CIDR-shaped values are format-checked; anything else is accepted as an alias.
+// to CIDR ranges. Alias names must satisfy pfSense's is_validaliasname()
+// charset (letters, digits and underscore, 1-31 chars); the fuller check also
+// rejects reserved words, IP protocol names and service names, which is left
+// to the API to enforce.
 func isCIDROrAlias() validator.String {
 	return stringCheck{
-		desc: "must be a CIDR network or an alias name",
+		desc: "must be a CIDR network or an alias name (letters, digits, underscore, < 32 chars)",
 		ok: func(s string) bool {
 			if s == "" {
 				return false
@@ -82,7 +84,7 @@ func isCIDROrAlias() validator.String {
 			if _, err := netip.ParsePrefix(s); err == nil {
 				return true // a CIDR network
 			}
-			return true // a non-CIDR value: a firewall alias name
+			return aliasNameRe.MatchString(s) // a firewall alias name
 		},
 	}
 }
@@ -110,10 +112,17 @@ func isIPAddressOrDynamic() validator.String {
 	return stringvalidator.Any(isIPAddress(), stringvalidator.OneOf("dynamic"))
 }
 
+// isIPAddressOrNone accepts an IP address or the literal "none" that pfSense's
+// DHCP server accepts to suppress gateway assignment.
+func isIPAddressOrNone() validator.String {
+	return stringvalidator.Any(isIPAddress(), stringvalidator.OneOf("none"))
+}
+
 var (
-	portishRe = regexp.MustCompile(`^[0-9:]+$`)
-	macRe     = regexp.MustCompile(`^([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}$`)
-	dateRe    = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
+	portishRe   = regexp.MustCompile(`^[0-9:]+$`)
+	macRe       = regexp.MustCompile(`^([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}$`)
+	dateRe      = regexp.MustCompile(`^\d{2}/\d{2}/\d{4}$`)
+	aliasNameRe = regexp.MustCompile(`^[A-Za-z0-9_]{1,31}$`)
 )
 
 // isPort matches a single port number (1-65535) carried as a string.
@@ -161,9 +170,10 @@ func isMAC() validator.String {
 	return stringvalidator.RegexMatches(macRe, "must be a MAC address")
 }
 
-// isDate matches a YYYY-MM-DD calendar date.
+// isDate matches a pfSense account expiry date in MM/DD/YYYY form (the format
+// system_usermanager.php writes to config.xml: $expdate->format("m/d/Y")).
 func isDate() validator.String {
-	return stringvalidator.RegexMatches(dateRe, "must be a date in YYYY-MM-DD format")
+	return stringvalidator.RegexMatches(dateRe, "must be a date in MM/DD/YYYY format")
 }
 
 // isSubnetBits bounds an IPv4/IPv6 prefix length.

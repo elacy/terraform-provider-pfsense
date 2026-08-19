@@ -89,8 +89,20 @@ func TestStringValidators(t *testing.T) {
 		{"mac dash delimited", isMAC(), "AA-BB-CC-DD-EE-FF", true},
 		{"mac too short", isMAC(), "aa:bb:cc:dd:ee", false},
 
-		{"date", isDate(), "2026-08-19", true},
-		{"date wrong format", isDate(), "19/08/2026", false},
+		{"date", isDate(), "08/19/2026", true},
+		{"date wrong format", isDate(), "2026-08-19", false},
+		{"date rejects single-digit month", isDate(), "8/19/2026", false},
+		{"date rejects dashes", isDate(), "08-19-2026", false},
+
+		{"ip or none takes ip", isIPAddressOrNone(), "10.0.0.1", true},
+		{"ip or none takes none", isIPAddressOrNone(), "none", true},
+		{"ip or none rejects junk", isIPAddressOrNone(), "not-an-ip", false},
+
+		{"cidr or alias takes cidr", isCIDROrAlias(), "10.0.0.0/24", true},
+		{"cidr or alias takes alias", isCIDROrAlias(), "internal_networks", true},
+		{"cidr or alias rejects space", isCIDROrAlias(), "internal networks", false},
+		{"cidr or alias rejects hyphen", isCIDROrAlias(), "internal-networks", false},
+		{"cidr or alias rejects empty", isCIDROrAlias(), "", false},
 	}
 
 	for _, tt := range tests {
@@ -111,6 +123,8 @@ func TestStringValidatorsSkipNullAndUnknown(t *testing.T) {
 		"isHostname":            isHostname(),
 		"isIPAddressOrHostname": isIPAddressOrHostname(),
 		"isIPAddressOrDynamic":  isIPAddressOrDynamic(),
+		"isIPAddressOrNone":     isIPAddressOrNone(),
+		"isCIDROrAlias":         isCIDROrAlias(),
 		"isPort":                isPort(),
 		"isPortOrRange":         isPortOrRange(),
 		"isMAC":                 isMAC(),
@@ -135,19 +149,19 @@ func TestStringValidatorsSkipNullAndUnknown(t *testing.T) {
 	}
 }
 
-func TestTolerateEmpty(t *testing.T) {
-	v := tolerateEmpty([]validator.String{isIPAddress()})[0]
+func TestAllowEmpty(t *testing.T) {
+	v := allowEmpty(isIPAddress())
 
 	// "" is the Optional attribute's unset sentinel and must be accepted.
 	if !acceptsString(v, "") {
-		t.Errorf("tolerateEmpty(isIPAddress) rejected the empty string")
+		t.Errorf("allowEmpty(isIPAddress) rejected the empty string")
 	}
 	// A valid value still passes.
 	if !acceptsString(v, "192.168.1.1") {
-		t.Errorf("tolerateEmpty(isIPAddress) rejected a valid IP")
+		t.Errorf("allowEmpty(isIPAddress) rejected a valid IP")
 	}
 	// An invalid value is still rejected.
 	if acceptsString(v, "not-an-ip") {
-		t.Errorf("tolerateEmpty(isIPAddress) accepted an invalid IP")
+		t.Errorf("allowEmpty(isIPAddress) accepted an invalid IP")
 	}
 }
