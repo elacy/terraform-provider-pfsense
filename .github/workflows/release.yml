@@ -21,6 +21,16 @@ jobs:
           go-version-file: 'go.mod'
           cache: true
 
+      # Import the signing key into the runner's keyring. The `signs`
+      # block in .goreleaser.yml signs SHA256SUMS with the key selected
+      # by GPG_FINGERPRINT; without this import gpg fails with
+      # "skipped ...: No secret key". Same action the v0.0.x workflow used.
+      - name: Import GPG key
+        uses: crazy-max/ghaction-import-gpg@v6
+        with:
+          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
+          passphrase: ${{ secrets.PASSPHRASE }}
+
       # GoReleaser >= 2.6 is required: .goreleaser.yml uses the
       # `archives.formats` list form. `latest` resolves to a current 2.x.
       - uses: goreleaser/goreleaser-action@v6
@@ -30,8 +40,6 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Required by the `signs` block in .goreleaser.yml. Set both
-          # secrets to GPG-sign the SHA256SUMS, or drop the `signs` block
-          # to publish unsigned (registry trust, not hard-required).
+          # Required by the `signs` block in .goreleaser.yml; the key
+          # itself is imported by the step above.
           GPG_FINGERPRINT: ${{ secrets.GPG_FINGERPRINT }}
-          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
